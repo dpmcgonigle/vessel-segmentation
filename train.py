@@ -53,8 +53,7 @@ def get_args():
     # parser.add_argument('--stride', type=int, default=32)
     # Model
     parser.add_argument('--model', type=str, default="MobileUNet-Skip", help="MobileUNet, MobileUNet-Skip")
-    # --load_model has not yet been implemented
-    # parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
+    parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
     parser.add_argument('--stage', type=int, default=1)
     # If you want to call this get_args() from a Jupyter Notebook, you need to uncomment -f line. Them's the rules.
     # parser.add_argument('-f', '--file', help='Path for input file.')
