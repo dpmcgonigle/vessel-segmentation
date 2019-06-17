@@ -11,7 +11,7 @@ from utils import randseed, filepath_to_name, get_memory, print_d, str2bool
 import utils
 from data_loader import load_train_test_images
 from MobileUNet import MobileUNet
-from eval_utils import AUC_ROC, AUC_PR, dice_coefficient, accuracy, sensitivity, specificity
+from eval_utils import AUC_ROC, AUC_PR, eval_metrics
 
 # Pytorch
 import torch
@@ -36,9 +36,10 @@ def get_args():
     # parser.add_argument('--patch_size', type=int, default=384)
     # parser.add_argument('--full_size', type=int, default=512)
     # execution information
+    parser.add_argument('--exp_name', type=str, help="Exp name will be used as dir name in data_dir")
     parser.add_argument('--gpus', type=str, default=1, help="0 for no GPU, 1 for single GPU, 2 for double...")
     parser.add_argument('--gpu_4g_limit', default=1, type=str2bool, help="set True to shrink MobileUNet, allowing batch size of 2 with 512 x 512 images")
-    parser.add_argument('--data_path', type=str, default="D:\\Data\\Vessels") # expects directory 'training'
+    parser.add_argument('--data_dir', type=str, default="D:\\Data\\Vessels") # expects directory 'training'
     parser.add_argument('--prob_dir', type=str, default="D:\\Data\\Vessels") # expects directory 'probability_maps'    
     # hyper-parameters
     parser.add_argument('--num_epochs', type=int, default=1001)
@@ -76,9 +77,10 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
     
     # Unpack dirs
     exp_dir, stage_exp_dir, stage_checkpoint_exp_dir = dirs
+    exp_prob_dir = os.path.join(exp_dir, "probability_maps")
     if stage==1:
-        if not os.path.isdir(args.prob_dir):
-            os.makedirs(args.prob_dir)
+        if not os.path.isdir(exp_prob_dir):
+            os.makedirs(exp_prob_dir)
     
     # instantiate loss function
     #   Orig func tf.reduce_mean(  tf.nn.softmax_cross_entropy_with_logits_v2(logits=network, labels=net_output)  )
@@ -106,7 +108,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
         
         #   load data before training
         print("\nepoch %d loading data ......" % (epoch + 1))
-        data, filenames = load_train_test_images(data_dir=args.data_path, prob_dir=args.prob_dir, 
+        data, filenames = load_train_test_images(data_dir=args.data_dir, prob_dir=args.prob_dir, 
             cv=args.cv, stage=args.stage)
         
         #
@@ -166,7 +168,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
             torch_training_batch_y = torch.from_numpy(training_batch_y)
             print_d("torch_training_batch_y shape: %s" % str(torch_training_batch_y.shape))
             
-            if args.gpus > 0:
+            if int(args.gpus) > 0:
                 torch_training_batch_x = torch_training_batch_x.cuda()
                 torch_training_batch_y = torch_training_batch_y.cuda()
 
@@ -179,7 +181,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
             #
             #   Save the output if this is a validation epoch
             #
-            if epoch % args.validate_epoch == 0:
+            if epoch % int(args.validate_epoch) == 0:
                 # argmax is used to compress the classification predictions down to a class prediction map
                 batch_prediction_maps = np.argmax(batch_predictions.detach().cpu().numpy(), 1)
                 print_d("batch_prediction_maps shape: %s" % str(batch_prediction_maps.shape))
@@ -208,7 +210,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
         #
         #   validate on training and validation data sets
         #
-        if epoch % args.validate_epoch == 0:
+        if epoch % int(args.validate_epoch) == 0:
             #
             # Create directories and files
             #
@@ -232,19 +234,15 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 print("Saving training images and data from validation epoch %d" % (epoch+1))
                 for img_index in tqdm(range(num_train_imgs)):
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
-                    train_y_img = np.squeeze(train_y_imgs[img_index])
-                    print_d("train_y_img shape: %s" % str(train_y_img.shape))
+                    train_y_arr = np.round(np.squeeze(train_y_imgs[img_index] / 255.0)).astype(int)
                     
                     # 
                     #   Save training metrics
                     #
                     train_filename = train_filenames[img_index]
-                    auc_roc = AUC_ROC(train_y_img, np_train_x_preds[img_index])
-                    auc_pr = AUC_PR(train_y_img, np_train_x_preds[img_index])
-                    dice_coef = dice_coefficient(train_y_img, np_train_x_preds[img_index])
-                    acc = accuracy(train_y_img, np_train_x_preds[img_index])
-                    sens = sensitivity(train_y_img, np_train_x_preds[img_index])
-                    spec = specificity(train_y_img, np_train_x_preds[img_index])
+                    auc_roc = AUC_ROC(train_y_arr, np_train_x_preds[img_index])
+                    auc_pr = AUC_PR(train_y_arr, np_train_x_preds[img_index])
+                    dice_coef, acc, sens, spec = eval_metrics(train_y_arr, np_train_x_preds[img_index])
 
                     target.write("%s,%f,%f,%f,%f,%f,%f\n" % (train_filename, auc_roc, auc_pr, dice_coef, acc, sens, spec))
 
@@ -253,7 +251,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     #
                     input_image = np.squeeze(np.transpose(train_x_imgs[img_index], axes=(1,2,0))).astype(int)
                     output_image = (np.squeeze(np_train_x_preds[img_index])*255.0).astype(int)
-                    label_image = np.squeeze(train_y_img).astype(int)
+                    label_image = np.squeeze(train_y_imgs[img_index]).astype(int)
                     plt.imsave(arr=input_image,
                                fname=os.path.join(stage_epoch_exp_train_dir, "%s_x.png" % (train_filenames[img_index])), 
                                cmap=cmap)
@@ -274,10 +272,8 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
 
                 for img_index in tqdm(range(num_test_imgs)):
                     torch_input_image = torch.from_numpy(np.expand_dims(test_x_imgs[img_index] / 255.0, 0))
-                    if args.gpus > 0:
+                    if int(args.gpus) > 0:
                         torch_input_image = torch_input_image.cuda()
-                        
-                    output_image = test_y_imgs[img_index] / 255.0
                     
                     # Run validation images through network
                     pred_image = network.forward(torch_input_image)
@@ -287,7 +283,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     del pred_image, torch_input_image # Trying to free up space 
                     
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
-                    test_y_img = np.squeeze(test_y_imgs[img_index])
+                    test_y_arr = np.round(np.squeeze(test_y_imgs[img_index] / 255.0)).astype(int)
                     print_d("test_y_imgs[img_index] shape: %s" % str(train_y_imgs[img_index].shape))
                     print_d("prediction_map shape: %s" % str(prediction_map.shape))
                     
@@ -295,12 +291,9 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     #   Save validation metrics
                     #
                     test_filename = test_filenames[img_index]
-                    auc_roc = AUC_ROC(test_y_img, prediction_map)
-                    auc_pr = AUC_PR(test_y_img, prediction_map)
-                    dice_coef = dice_coefficient(test_y_img, prediction_map)
-                    acc = accuracy(test_y_img, prediction_map)
-                    sens = sensitivity(test_y_img, prediction_map)
-                    spec = specificity(test_y_img, prediction_map)
+                    auc_roc = AUC_ROC(test_y_arr, prediction_map)
+                    auc_pr = AUC_PR(test_y_arr, prediction_map)
+                    dice_coef, acc, sens, spec = eval_metrics(test_y_arr, prediction_map)
                     
                     avg_auc_roc.append(auc_roc)
                     avg_auc_pr.append(auc_pr)
@@ -314,7 +307,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     #
                     input_image = np.squeeze(np.transpose(test_x_imgs[img_index], axes=(1,2,0))).astype(int)
                     output_image = (np.squeeze(prediction_map)*255.0).astype(int)
-                    label_image = np.squeeze(test_y_img).astype(int)
+                    label_image = np.squeeze(test_y_imgs[img_index]).astype(int)
                     plt.imsave(arr=input_image,
                                fname=os.path.join(stage_epoch_exp_test_dir, "%s_x.png" % (test_filenames[img_index])), 
                                cmap=cmap)
@@ -354,16 +347,14 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 #
                 #   save probability map images for stage 2
                 #
-                if stage==2:
+                if stage==1:
                     
                     # replace old prob images
                     print("\nSaving images in training set")
                     for img_index in tqdm(range(num_train_imgs)):
                         torch_input_image = torch.from_numpy(np.expand_dims(train_x_imgs[img_index] / 255.0, 0))
-                        if args.gpus > 0:
+                        if int(args.gpus) > 0:
                             torch_input_image = torch_input_image.cuda()
-                            
-                        output_image = train_y_imgs[img_index] / 255.0
                         
                         # Run validation images through network
                         pred_image = network.forward(torch_input_image)
@@ -376,18 +367,16 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                         #   Save probability map
                         #
                         output_image = np.squeeze(prediction_map)
-                        plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(int),
-                                   fname=os.path.join(args.prob_dir, "%s_pred.png" % (train_filenames[img_index])), cmap='gray')
+                        plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(int), fname=os.path.join(exp_prob_dir, 
+                            "%s_pred.png" % (train_filenames[img_index])), cmap='gray')
                                    
                     print("\nSaving images in validation set")
                     for img_index in tqdm(range(num_test_imgs)):
                         torch_input_image = torch.from_numpy(np.expand_dims(test_x_imgs[img_index] / 255.0, 0))
                         
-                        if args.gpus > 0:
+                        if int(args.gpus) > 0:
                             torch_input_image = torch_input_image.cuda()
                             
-                        output_image = test_y_imgs[img_index] / 255.0
-                        
                         # Run validation images through network
                         pred_image = network.forward(torch_input_image)
                         
@@ -399,8 +388,8 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                         #   Save probability map
                         #
                         output_image = np.squeeze(prediction_map)
-                        plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(int),
-                                   fname=os.path.join(args.prob_dir, "%s_pred.png" % (test_filenames[img_index])), cmap='gray')
+                        plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(int), fname=os.path.join(exp_prob_dir, 
+                            "%s_pred.png" % (test_filenames[img_index])), cmap='gray')
 
         
         print("global_evaluation = {}".format(global_evaluation))
@@ -412,10 +401,12 @@ if __name__ == "__main__":
     args = get_args()
     pprint(args)
 
-    #os.environ["CUDA_VISIBLE_DEVICES"] = "{}".format(args.gpus)
+    # Provide experiment name if none is provided
+    if args.exp_name is None:
+        args.exp_name = utils.date_time_stamp()
     
     # Make directories for output
-    exp_dir = os.path.join(args.data_path, "output", "run_%s" % utils.date_time_stamp(), "exp_%d" % args.cv)
+    exp_dir = os.path.join(args.data_dir, "output", "run_%s" % args.exp_name, "exp_%d" % args.cv)
     stage_exp_dir = os.path.join(exp_dir, "stage_%d" % args.stage)
     stage_checkpoint_exp_dir = os.path.join(exp_dir, "stage_checkpoint_%d" % args.stage)
     if not os.path.isdir(exp_dir):
@@ -445,7 +436,7 @@ if __name__ == "__main__":
         gpus=args.gpus, gpu_4g_limit=args.gpu_4g_limit)
 
     # assign network to cpu or gpu, and load parameters if applicable
-    if args.gpus > 0:
+    if int(args.gpus) > 0:
         print("Using CUDA version of the network, prepare your GPU !")
         network.cuda()
         if args.load_model is not None:

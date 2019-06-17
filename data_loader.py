@@ -8,6 +8,9 @@ from skimage import filters
 ############################################################################################
 #                           DATA LOADING FUNCTIONS
 #   List of functions:
+#       get_prob_dir            - set the default prob_dir if one isn't provided
+#       get_data_dir            - set the default data_dir if one isn't provided
+#       get_filenames           - returns the basename of the different image files
 #       load_data_filenames     - returns lists of train and test image and label image filenames
 #       load_prob_filenames     - returns lists of train and test image probability filenames
 #       load_train_test_images  - loads all images and splits them to train/validation bins
@@ -16,7 +19,40 @@ from skimage import filters
 #       reshape_transpose       - reshapes the numpy arrays of images for modelling (N x C x H x W)
 #       get_dtype               - returns data type to use in numpy arrays
 ############################################################################################
-def load_data_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
+def get_prob_dir():
+    """ Return default prob_dir if one isn't provided """
+    return "D:\\Data\\Vessels\\"
+#   End get_prob_dir
+############################################################################################
+
+############################################################################################
+def get_data_dir():
+    """ Return default data_dir if one isn't provided """
+    return "D:\\Data\\Vessels\\"
+#   End get_prob_dir
+############################################################################################
+
+############################################################################################
+def get_filenames(data_dir=get_data_dir(), pred=False):
+    """
+    Retrieving the training and prediction maps with sorted(glob()) in the load_data_filenames was mixing up images
+        that were suffixed with a number.  For instance, 3_LCA_LAO.png and 3_LCA_LAO2.png would reverse order in the 
+        prob dir because of the _pred extension 3_LCA_LAO2_pred.png, 3_LCA_LAO_pred.png.
+    It was therefore necessary to load all files in the same manner, hence this function that gets them from "training".
+    if pred==True, addes "_pred" before extension for the probability maps generated in Stage 1.
+    """
+    # basename returns the filename without path
+    filenames = [os.path.basename(f) for f in sorted(glob(os.path.join(data_dir, "training", "*.png")))]
+    
+    if pred:
+        return [os.path.splitext(f)[0] + "_pred" + os.path.splitext(f)[1] for f in filenames]
+    else:
+        return filenames
+#   End get_filenames
+############################################################################################
+
+############################################################################################
+def load_data_filenames(data_dir=get_data_dir(), cv=0, cv_max=5):
     """
     returns 4 lists of filenames: train_x_image_paths, train_y_image_paths, test_x_image_paths, test_y_image_paths
     data_dir assumes sub-folders named "training" and "label" exist with images and target images, respectively.
@@ -28,8 +64,9 @@ def load_data_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
 
     assert 0 <= cv < cv_max, "Choose cv fold between 0 and (cv_max - 1)"
     # os.path.join ensures that this path will work on any os
-    data_image_files = sorted(glob(os.path.join(data_dir, "training", "*.png")))
-    data_label_files = sorted(glob(os.path.join(data_dir, "label", "*.png")))
+    filenames = get_filenames(data_dir=data_dir)
+    data_image_files = [os.path.join(data_dir, "training", f) for f in filenames]
+    data_label_files = [os.path.join(data_dir, "label", f) for f in filenames]
     
     # r_index will be a list of image indexes with the size of the total number of images
     # Ex: 5 images might yield [3,1,2,4,0]
@@ -57,7 +94,7 @@ def load_data_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
 ############################################################################################
 
 ############################################################################################
-def load_prob_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
+def load_prob_filenames(data_dir=get_data_dir(), prob_dir=get_prob_dir(), cv=0, cv_max=5):
     """
     returns 2 lists of filenames: train_prob_image_paths, test_prob_image_paths
     data_dir assumes sub-folder "probability_maps" exists with probability images for stage 2 of the U-Net.
@@ -66,10 +103,10 @@ def load_prob_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
     """    
     # Constant random seed for reproducible results
     np.random.seed(randseed())
-    
     assert 0 <= cv < cv_max, "Choose cv fold between 0 and (cv_max - 1)"
     # os.path.join ensures that this path will work on any os
-    data_prob_map_files = sorted(glob(os.path.join(data_dir, "probability_maps", "*.png")))
+    filenames = get_filenames(data_dir=data_dir, pred=True)
+    data_prob_map_files = [os.path.join(prob_dir, "probability_maps", f) for f in filenames]
     
     # r_index will be a list of image indexes with the size of the total number of images
     # Ex: 5 images might yield [3,1,2,4,0]
@@ -92,7 +129,7 @@ def load_prob_filenames(data_dir="D:\\Data\\Vessels\\", cv=0, cv_max=5):
 ############################################################################################
 
 ############################################################################################
-def load_train_test_images(data_dir="D:\\Data\\Vessels\\", prob_dir="D:\\Data\\Vessels\\", 
+def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(), 
     image_type="grayscale", cv=0, cv_max=5, stage=1):
     """
     returns tuple of data and filename dictionaries:
@@ -143,7 +180,7 @@ def load_train_test_images(data_dir="D:\\Data\\Vessels\\", prob_dir="D:\\Data\\V
         new_shape = [img_height, img_width, num_channels]
         
         # Get filenames for train and val probability maps and load images as np arrays if stage == 2
-        train_prob_data_paths, test_prob_data_paths = load_prob_filenames(data_dir=prob_dir, cv=0, cv_max=5)
+        train_prob_data_paths, test_prob_data_paths = load_prob_filenames(data_dir=data_dir, prob_dir=prob_dir, cv=0, cv_max=5)
         
         train_prob_images = reshape_transpose( 
             load_image_batch(train_prob_data_paths, image_type=image_type) , 
@@ -260,65 +297,4 @@ def get_dtype():
     # return np.uint8
     # return np.float16
 # END get_dtype
-############################################################################################
-
-
-
-
-
-
-
-
-def load_data_in_stage_2(data_dir="./data/rect", cv=0, cv_max=5, prob_dir="./prob"):
-    from skimage import filters
-    train_x_data_paths, train_y_data_paths, test_x_data_paths, test_y_data_paths, train_prob_data_paths, test_prob_data_paths\
-        = load_data(data_dir, with_prob=True, cv=cv, cv_max=cv_max, prob_dir=prob_dir)
-
-    train_x_images = helpers.load_image_batch(train_x_data_paths, gray=True)
-    train_y_images = helpers.load_image_batch(train_y_data_paths, gray=True)
-    train_prob_images = helpers.load_image_batch(train_prob_data_paths, gray=True)
-    test_x_images = helpers.load_image_batch(test_x_data_paths, gray=True)
-    test_y_images = helpers.load_image_batch(test_y_data_paths, gray=True)
-    test_prob_images = helpers.load_image_batch(test_prob_data_paths, gray=True)
-
-    train_x_images_multi_channels = []
-    test_x_images_multi_channels = []
-
-    new_shape = [512, 512, 3]
-    for i in range(train_x_images.shape[0]):
-        img = np.zeros(new_shape, dtype=np.float32)
-        img[:, :, 0] = np.squeeze(train_x_images[i])
-        img[:, :, 1] = np.squeeze(train_prob_images[i])
-        img[:, :, 2] = helpers.filter_image(np.squeeze(train_prob_images[i]), img_filter=filters.prewitt)
-        train_x_images_multi_channels.append(img)
-
-    for i in range(test_x_images.shape[0]):
-        img = np.zeros(new_shape, dtype=np.float32)
-        img[:, :, 0] = np.squeeze(test_x_images[i])
-        img[:, :, 1] = np.squeeze(test_prob_images[i])
-        img[:, :, 2] = helpers.filter_image(np.squeeze(test_prob_images[i]), img_filter=filters.prewitt)
-        test_x_images_multi_channels.append(img)
-
-    train_x_images = np.float32(np.array(train_x_images_multi_channels))
-    train_y_images = np.float32(train_y_images)
-    test_x_images = np.float32(np.array(test_x_images_multi_channels))
-    test_y_images = np.float32(test_y_images)
-
-    data_images = {"train_x_images": train_x_images,
-                   "train_y_images": train_y_images,
-                   "test_x_images": test_x_images,
-                   "test_y_images": test_y_images}
-    train_filenames = []
-    test_filenames = []
-    for train_file_path in train_x_data_paths:
-        train_filenames.append(train_file_path[train_file_path.rfind("/"): train_file_path.rfind(".")])
-
-    for test_file_path in test_x_data_paths:
-        test_filenames.append(test_file_path[test_file_path.rfind("/"): test_file_path.rfind(".")])
-
-    data_names = {"train_filenames": train_filenames,
-                  "test_filenames": test_filenames}
-
-    return data_images, data_names
-# END 
 ############################################################################################
