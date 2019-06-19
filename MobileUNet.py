@@ -27,8 +27,9 @@ class MobileUNet(nn.Module):
     NOTE: 6/1/2019 - My NVIDIA GeForce GTX 1050 Ti has a capacity of 4GB memory, and the full model was exceeding that, 
     yielding a run-time error.  It may be a memory management issue, but until that time I have commented out some of 
     the depthwise separable convolutions to ensure it runs fine on my machine. - McGonigle
+    if gpu is -1, run on CPU.  Otherwise, run on GPU device specified
     """
-    def __init__(self, input_channels=1, preset_model="MobileUNet-Skip", num_classes=2, gpus=0, gpu_4g_limit=True):
+    def __init__(self, input_channels=1, preset_model="MobileUNet-Skip", num_classes=2, gpu=-1, gpu_4g_limit=True):
         """
         Constructor for MobileUNet
         inputs:
@@ -36,7 +37,7 @@ class MobileUNet(nn.Module):
         preset_model: MobileUNet-Skip to retain the output of each down-sampling layer and add to the corresponding 
             up-sample.  MobileUNet will not perform this action.
         num_classes: number of classes for semantic segmentation 2 for semantic segmentation
-        gpus: Determines if we use cuda for this model.  
+        gpu: Determines if we use cuda for this model. -1 uses CPU 
             NOTE If using GPU, you need to call .cuda() on the variables and model in the driver script.
         gpu_4g_limit: If you have a 4GB Memory limit (like my NVIDIA GeForce GTX 1050 Ti), the full model is too big
             when using 512 x 512 images
@@ -53,7 +54,7 @@ class MobileUNet(nn.Module):
             raise ValueError("Unsupported MobileUNet model '%s'. This function only supports MobileUNet and MobileUNet-Skip" % (preset_model))
 
         # Boolean determines whether to run on CPU
-        self.cpu = (gpus == 0)
+        self.cpu = (gpu == -1)
         # Boolean determines whether GPU is limited to 4GB RAM.  If so, run with max batch size of 2
         self.gpu_4g_limit = gpu_4g_limit
         
@@ -316,7 +317,7 @@ class MobileUNet(nn.Module):
             if self.cpu:
                 self.skips.update([(layer, (torch.zeros_like(x)).cpu())])
             else:
-                self.skips.update([(layer, (torch.zeros_like(x)).cuda())])
+                self.skips.update([(layer, (torch.zeros_like(x)).cuda(int(gpu)))])
 
         # Pass x back through to the next module in the model
         
