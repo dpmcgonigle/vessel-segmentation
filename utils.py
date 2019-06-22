@@ -80,13 +80,13 @@ def BtoGB(bytes):
 ############################################################################################
 
 ############################################################################################
-def get_memory():
+def get_memory(gpu=0):
     """
     returns a string containing your torch.cuda memory usage, CPU usage, and virtual memory information
     >>> print(getMemory())
     out: GPU usage: 3.200 GB / 4.000 GB => 80.000 %, CPU usage: 0.812 GB => 3.301%\n (virtual memory info)
     """
-    alloc = BtoGB(torch.cuda.memory_allocated())
+    alloc = BtoGB(torch.cuda.memory_allocated(gpu))
     pct = float(alloc / 4.0) # NVIDIA GeForce GTX 1050Ti has 4GB RAM - McGonigle
     py = psutil.Process(os.getpid())
     cpuUse = BtoGB(py.memory_info()[0])

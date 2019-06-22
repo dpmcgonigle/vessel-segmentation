@@ -267,7 +267,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 #   Iterate through validation images to save and record metrics for
                 #
                 print("\n[x] testing on validation set")
-                avg_auc_roc = avg_auc_pr = avg_dice = avg_acc = avg_sn = avg_sp = []
+                avg_auc_roc , avg_auc_pr , avg_dice , avg_acc , avg_sn , avg_sp = [], [], [], [], [], []
 
                 target.write("testing data\n")
 
