@@ -17,7 +17,8 @@ from skimage import filters
 #       load_image              - loads one image
 #       load_image_batch        - loads a clutch of images
 #       reshape_transpose       - reshapes the numpy arrays of images for modelling (N x C x H x W)
-#       get_dtype               - returns data type to use in numpy arrays
+#       dtype_0_255             - returns data type to use in numpy arrays that hold 0-255 data
+#       dtype_0_1               - returns data type to use in numpy arrays that hold 0-1 data
 ############################################################################################
 def get_prob_dir():
     """ Return default prob_dir if one isn't provided """
@@ -191,7 +192,7 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
     
         num_train_imgs = train_x_images.shape[0]
         # initialize (for scoping) new ndim array to hold orig image, prob map and edge map 
-        multidim_train_x_images = np.empty((num_train_imgs, num_channels, img_height, img_width), dtype=get_dtype())
+        multidim_train_x_images = np.empty((num_train_imgs, num_channels, img_height, img_width), dtype=dtype_0_255())
         for i in range(num_train_imgs):
             multidim_train_x_images[i,0] = np.squeeze(train_x_images[i])
             multidim_train_x_images[i,1] = np.squeeze(train_prob_images[i])
@@ -201,7 +202,7 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
         
         num_test_imgs = test_x_images.shape[0]
         # initialize (for scoping) new ndim array to hold orig image, prob map and edge map 
-        multidim_test_x_images = np.empty((num_test_imgs, num_channels, img_height, img_width), dtype=get_dtype())
+        multidim_test_x_images = np.empty((num_test_imgs, num_channels, img_height, img_width), dtype=dtype_0_255())
         for i in range(num_test_imgs):
             multidim_test_x_images[i,0] = np.squeeze(test_x_images[i])
             multidim_test_x_images[i,1] = np.squeeze(test_prob_images[i])
@@ -240,7 +241,7 @@ def load_image(image_path, image_type="grayscale"):
         image = cv2.cvtColor(cv2.imread(image_path, -1), cv2.COLOR_BGR2RGB)
     else:
         raise ValueError("image_type must be \"grayscale\", \"rgb\"...")
-    return image.astype(get_dtype())
+    return image.astype(dtype_0_255())
 # END load_image
 ############################################################################################
 
@@ -292,9 +293,20 @@ def reshape_transpose(image_array, image_type="grayscale"):
 ############################################################################################
 
 ############################################################################################
-def get_dtype():
+def dtype_0_255():
+    """
+    Images loaded in 0-255 format should be integer, while 0-1 should be float
+    """
+    return np.uint8
+# END dtype_0_255
+############################################################################################
+
+############################################################################################
+def dtype_0_1():
+    """
+    Images loaded in 0-255 format should be integer, while 0-1 should be float
+    Note that float16 corresponds to HalfTensor, which doesn't jive with the network's weights.
+    """
     return np.float32
-    # return np.uint8
-    # return np.float16
-# END get_dtype
+# END dtype_0_1
 ############################################################################################

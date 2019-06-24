@@ -8,6 +8,8 @@ import subprocess
 import psutil
 import torch
 from scipy.misc import imread
+from skimage import morphology
+from skimage.util import random_noise
 
 ############################################################################################
 #                           UTILITY FUNCTIONS
@@ -23,6 +25,7 @@ from scipy.misc import imread
 #       reverse_one_hot         - Transform one-hot 3D array (H x W x num_classes) to (H x W x 1), where 1 = class
 #       count_params            - Get the total number of parameters that require_grad from the model
 #       date_time_stamp         - return YYYYMMDD_HHMM string
+#       normalize_image         - Take image in 0-255 int format and turn it into 0-1 float32 format
 ############################################################################################
 def install(name):
     """
@@ -44,6 +47,98 @@ def randseed():
 # END randseed
 ############################################################################################
 
+############################################################################################
+def augment_imageset(input_img, label_img, probability_threshold=0.2, flip=True, rotate=True, translate=True, tophat=True, noise=True):
+    """
+    Perform morphological transformations and other data augmentation methods on an input image and label image.
+    Decide whether to perform each operation randomly based on the probability_threshold
+    Operations:
+    - Horizontal and Vertical flips (one or the other)
+    - Rotations
+    - Translations 
+    - Top and bottom hat transforms (one or the other)
+    - Random Gaussian and Salt & Pepper Noise (one or the other)
+    Input:
+    - input_img - of shape (num_channels, height, width); ***data should be in integer 0-255 format***
+    - label_img - of shape (num_channels, height, width); ***data should be in integer 0-255 format***
+    - probability_threshold - 0.0 to 1.0 (0% to 100%)
+    """
+    # Copy Arrays so that we don't run into any array shared storage issues
+    x_img = input_img.copy()
+    y_img = label_img.copy()
+    rows,cols = x_img.shape[-1] , x_img.shape[-2] 
+    
+    # Flips
+    if flip and np.random.rand() <= probability_threshold:
+        # Vertical flip is axis 0, Horizontal flip is axis 1
+        flip_axis = 0 if np.random.rand() <= 0.5 else 1
+        print_d("flip axis %d"%flip_axis)
+        for index, img in enumerate(x_img):
+            x_img[index] = cv2.flip(img.copy(), flip_axis)
+        for index, lbl in enumerate(y_img):
+            y_img[index] = cv2.flip(lbl.copy(), flip_axis)
+    
+    # Rotations - important to put this before translate
+    if rotate and np.random.rand() <= probability_threshold:
+        # Rotate from -360 to +360 degrees
+        rotation = np.random.randint(-360,360)
+        print_d("rotate %d degrees" % rotation)
+
+        for index, img in enumerate(x_img):
+            #(col/2,rows/2) is the center of rotation for the image 
+            # M is transformation matrix (computer graphics concept)
+            M = cv2.getRotationMatrix2D((cols/2,rows/2),rotation,1) 
+            x_img[index] = cv2.warpAffine(img.copy(),M,(cols,rows))         
+        for index, lbl in enumerate(y_img):
+            M = cv2.getRotationMatrix2D((cols/2,rows/2),rotation,1) 
+            y_img[index] = cv2.warpAffine(lbl.copy(),M,(cols,rows))  
+        
+    # Translations
+    if translate and np.random.rand() <= probability_threshold:
+        # Translate from -(1/4) to +(1/4) of image height/width
+        translation_x = np.random.randint(int(- x_img.shape[-1] / 4), int(x_img.shape[-1] / 4))
+        translation_y = np.random.randint(int(- x_img.shape[-2] / 4), int(x_img.shape[-2] / 4))
+        print_d("translate [%d, %d] pixels" % (translation_x, translation_y))
+        
+        for index, img in enumerate(x_img):
+            # M is transformation matrix (computer graphics concept)
+            M = np.float32([[1,0,translation_x],[0,1,translation_y]]) 
+            x_img[index] = cv2.warpAffine(img.copy(),M,(cols,rows))         
+        for index, lbl in enumerate(y_img):
+            M = np.float32([[1,0,translation_x],[0,1,translation_y]]) 
+            y_img[index] = cv2.warpAffine(lbl.copy(),M,(cols,rows))  
+        
+    # Tophat transforms
+    if tophat and np.random.rand() <= probability_threshold:
+        # tophat (image opening) is black_tophat; bottomhat (image closing) is white_tophat
+        # https://www.youtube.com/watch?v=P2vAhqGgV44
+        # Size 25 square for structuring element visually looks like a good choice for this type of data
+        xform = morphology.black_tophat if np.random.rand() <= 0.5 else morphology.white_tophat
+        print_d("Tophat transform: %s" % str(xform))
+        x_img[0] = xform(x_img[0], selem=morphology.square(25))
+
+    # Make some noise
+    if noise and np.random.rand() <= probability_threshold:
+        # random_noise() uses scale [0, 1.0], will need to multiply to get it to [0, 255]
+        # inherently it use np.random.normal() to create normal distribution and adds the generated noised back to image
+        # modes are 'gaussian', 'localvar', 'poisson', 'salt', 'pepper', 's&p', and 'speckle'
+        # var stands for variance of the distribution. Used in 'gaussian' and 'speckle'. amount can be used for s&p
+        # variance / amount will be up to 0.25
+        noise_amount = np.random.randint(0,25) / 100.0
+        mode = "s&p" if np.random.rand() <= 0.5 else "gaussian"
+        print_d("Adding %.02f %s noise" % (noise_amount, mode))
+        
+        noise_img = None
+        if mode == "gaussian":
+            noise_img = random_noise(x_img[0], mode=mode, var=noise_amount**2)  
+        elif mode == "s&p":
+            noise_img = random_noise(x_img[0], mode=mode, amount=noise_amount)
+        noise_img = (255*noise_img).astype(np.uint8)
+        
+    return x_img, y_img
+# END augment_imageset
+############################################################################################
+    
 ############################################################################################
 def str2bool(input_str):
     """
@@ -167,6 +262,11 @@ def date_time_stamp():
 ############################################################################################
 
 ############################################################################################   
+def normalize_image(img, dtype=np.float32):
+    """Transforms image from 0-255 format into 0-1 format"""
+    return (img / 255.0).astype(dtype)
+ # END date_time_stamp
+############################################################################################
 
 ####################
 ####################

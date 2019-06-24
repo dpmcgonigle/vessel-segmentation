@@ -7,9 +7,9 @@ import json                 #   handles json-formatted data
 from pprint import pprint
 
 # User-defined
-from utils import randseed, filepath_to_name, get_memory, print_d, str2bool
+from utils import randseed, filepath_to_name, get_memory, print_d, str2bool, normalize_image, augment_imageset
 import utils
-from data_loader import load_train_test_images
+from data_loader import load_train_test_images, dtype_0_1
 from MobileUNet import MobileUNet
 from eval_utils import AUC_ROC, AUC_PR, eval_metrics
 
@@ -37,32 +37,36 @@ def get_args():
     # parser.add_argument('--full_size', type=int, default=512)
     # execution information
     parser.add_argument('--exp_name', type=str, help="Exp name will be used as dir name in data_dir")
-    parser.add_argument('--gpu', type=str, default=1, help="0 for GPU device 0, 1 for GPU device 1, -1 for CPU")
+    parser.add_argument('--gpu', type=str, default=0, help="0 for GPU device 0, 1 for GPU device 1, -1 for CPU")
     parser.add_argument('--gpu_4g_limit', default=1, type=str2bool, help="set True to shrink MobileUNet, allowing batch size of 2 with 512 x 512 images")
     parser.add_argument('--data_dir', type=str, default="D:\\Data\\Vessels") # expects directory 'training'
-    parser.add_argument('--prob_dir', type=str, default="D:\\Data\\Vessels") # expects directory 'probability_maps'    
+    parser.add_argument('--prob_dir', type=str) # expects directory 'probability_maps'; defaults to exp_dir
     # hyper-parameters
-    parser.add_argument('--num_epochs', type=int, default=1001)
-    parser.add_argument('--start_epoch', type=int, default=0)
+    parser.add_argument('--epochs_per_stage', type=int, default=600)
+    parser.add_argument('--start_epoch', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=2)
-    parser.add_argument('--validate_epoch', type=int, default=25)
+    parser.add_argument('--validate_epoch', type=int, default=30)
     parser.add_argument('--cv', type=int, default=0) # cross validation, CV=5
-    # data augmentation - not implemented yet
-    # parser.add_argument('--h_flip', type=str2bool, default=True)
-    # parser.add_argument('--v_flip', type=str2bool, default=True)
-    # parser.add_argument('--rotation', type=float, default=30)
-    # parser.add_argument('--wb_contrast', type=str2bool, default=True) # for stage 1, wb_contrast=True
-    # parser.add_argument('--stride', type=int, default=32)
+    # data augmentation
+    parser.add_argument('--augment_data', type=str2bool, default=True, help="Turns on data augmentation(flip, rotate, translate, noise, tophat)")
+    parser.add_argument('--augmentation_threshold', type=float, default=0.25, help="randomly perform one of the augmentation procedures this % of the time")
+    parser.add_argument('--expand_dataset', type=int, default=3, help="multiply dataset by this number with data augmentation")
+    parser.add_argument('--flip', type=str2bool, default=True)
+    parser.add_argument('--rotate', type=str2bool, default=True)
+    parser.add_argument('--translate', type=str2bool, default=True)
+    parser.add_argument('--tophat', type=str2bool, default=True)
+    parser.add_argument('--noise', type=str2bool, default=True)
     # Model
     parser.add_argument('--model', type=str, default="MobileUNet-Skip", help="MobileUNet, MobileUNet-Skip")
     parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
-    parser.add_argument('--stage', type=int, default=1)
+    parser.add_argument('--learning_rate', type=float, default=0.0001)
+    parser.add_argument('--stage', type=int, default=3, help="1 for first stage, 2 for second, 3 for both")
     # If you want to call this get_args() from a Jupyter Notebook, you need to uncomment -f line. Them's the rules.
     # parser.add_argument('-f', '--file', help='Path for input file.')
     return parser.parse_args()
 
 ############################### TRAIN NETWORK ###############################
-def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, learning_rate=0.0001, stage=1):
+def train_network(network, args, dirs, stage):
     """
     Train the model for any stage of the full model cycle.
     As of 6/16/2019, this is what the model looks like:
@@ -73,21 +77,33 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
     dirs should be a tuple of the experiment dir, stage directory within experiment, checkpoint dir within stage dir
     The learning rate with the Mobile-U-Net, Adam, and CrossEntropy loss seems to work well with 0.0001 on vessel imgs
     """
+    #
+    #   Training variables
+    #
+    start_epoch = args.start_epoch
+    epochs = args.epochs_per_stage
+    batch_size = args.batch_size
+    learning_rate = args.learning_rate
 
-    print("Preparing the model for training ...")
+    print("\nPreparing the model for training on stage %d..." % stage)
     
     # Unpack dirs
     exp_dir, stage_exp_dir, stage_checkpoint_exp_dir = dirs
     exp_prob_dir = os.path.join(exp_dir, "probability_maps")
-    if stage==1:
+    # If we're in stage 1, need to create the directory for probability maps
+    if stage == 1:
         if not os.path.isdir(exp_prob_dir):
             os.makedirs(exp_prob_dir)
-    
+    # If no prob_dir is specified, set it equal to the exp_dir
+    if args.prob_dir is None:
+        args.prob_dir = exp_dir
+            
+    # Save the command-line arguments for this stage and the model
+    json.dump(args.__dict__, open(os.path.join(stage_exp_dir, "config.txt"), "w"), indent=4)
+    model_checkpoint_name = os.path.join(stage_exp_dir, "latest_model_" + args.model + ".ckpt")
+
     # instantiate loss function
-    #   Orig func tf.reduce_mean(  tf.nn.softmax_cross_entropy_with_logits_v2(logits=network, labels=net_output)  )
-    #   Trying CrossEntropyLoss2d from github
     criterion = nn.CrossEntropyLoss(reduction='mean').cuda(int(args.gpu))
-    #criterion = CrossEntropyLoss2d()
     
     # instantiate optimizer
     optimizer = torch.optim.Adam(network.parameters(), lr=learning_rate)
@@ -98,19 +114,21 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
     global_evaluation = 0.  # DICE
     global_evaluation_epoch = 0
     cmap = "gray" if stage==1 else None
-    
+   
     #
     #   wrap epoch counter in tqdm, which is a progress bar (see https://github.com/tqdm/tqdm)
     #
-    for epoch in tqdm(range(start_epoch, epochs)):
+    for epoch in tqdm(range(start_epoch, epochs+1)):
+        # I call this function several times throughout training to ensure that garbage has been collected
         torch.cuda.empty_cache()
+        
         # initialize epoch_loss to 0
         epoch_loss = 0
         
         #   load data before training
-        print("\nepoch %d loading data ......" % (epoch + 1))
+        print("\nepoch %d loading data ......" % epoch)
         data, filenames = load_train_test_images(data_dir=args.data_dir, prob_dir=args.prob_dir, 
-            cv=args.cv, stage=args.stage)
+            cv=args.cv, stage=stage)
         
         #
         #   Unpack Images from data; all in (n x c x h x w) format
@@ -129,7 +147,8 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
         img_width = train_x_imgs.shape[3]
         input_channels = STAGE_1_INPUT_CHANNELS if stage == 1 else STAGE_2_INPUT_CHANNELS
         
-        if epoch == 0:
+        # print out dataset details
+        if epoch == 1:
             print("Number of training images: %d, testing images: %d" % (num_train_imgs, num_test_imgs))
             print("Shape of training images: %s, testing images: %s" % (str(train_x_imgs.shape), str(test_x_imgs.shape)))
             print("\n")
@@ -139,27 +158,34 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
         np_train_x_preds = np.empty((0, img_height, img_width), float)
         
         #
-        #   Image transformations
+        #   Image transformations, if applicable
         #
         input_image_batch = []
         output_image_batch = []
-        for img_index in tqdm(range(0, num_train_imgs)):            
-            #
-            #   McGonigle - This is where Chen implemented data augmentation, cropping, etc
-            #       Plan is to modularize those functionalities
-            #       Using full images for now
-            #
+        for img_index in tqdm(range(0, num_train_imgs)):  
+            # Starting images
+            input_image = train_x_imgs[img_index].copy()
+            output_image = train_y_imgs[img_index].copy()
             
-            #
-            #   Add normalized images to batch and turn them into pytorch Variable
-            #
-            input_image = train_x_imgs[img_index] / 255.0
-            output_image = train_y_imgs[img_index] / 255.0
-            input_image_batch.append(input_image)
-            output_image_batch.append(output_image)
+            # Data augmentation
+            if args.augment_data:
+                for i in range(args.expand_dataset):
+                    augmented_x, augmented_y = augment_imageset(input_image, output_image,
+                        probability_threshold=args.augmentation_threshold, flip=args.flip, rotate=args.rotate,
+                        translate=args.translate, tophat=args.tophat, noise=args.noise)
+                    # Make sure the arrays are not the same
+                    if not np.array_equal(input_image, augmented_x):
+                        input_image_batch.append(normalize_image(input_image))
+                        output_image_batch.append(normalize_image(output_image))
+                        
+            else:
+                #   Add normalized images to batch and turn them into pytorch Variable
+                input_image_batch.append(normalize_image(input_image))
+                output_image_batch.append(normalize_image(output_image))
 
-        input_image_batch = np.array(input_image_batch)
-        output_image_batch = np.array(output_image_batch)
+        # Need to cast the images to the correct float type for torch FloatTensor to work
+        input_image_batch = np.array(input_image_batch, dtype=dtype_0_1())
+        output_image_batch = np.array(output_image_batch, dtype=dtype_0_1())
         
         for mini_batch in range(int(np.ceil(num_train_imgs / batch_size))):
             training_batch_x = input_image_batch[mini_batch*batch_size : (mini_batch+1)*batch_size]
@@ -196,7 +222,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
             
             epoch_loss += float(loss.detach().cpu())
             
-            print('\r Epoch {0:d} --- {1:.2f}% complete --- mini-batch loss: {2:.6f}'.format(epoch + 1, mini_batch * batch_size / num_train_imgs * 100, loss.item()), end=' ')
+            print('\r Epoch {0:d} --- {1:.2f}% complete --- mini-batch loss: {2:.6f}'.format(epoch, mini_batch * batch_size / num_train_imgs * 100, loss.item()), end=' ')
             
             #
             #   Zero out gradients and then back-propogate & step forward
@@ -206,7 +232,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
             optimizer.step()
             torch.cuda.empty_cache()
 
-        print('\rEpoch {} training finished ! Loss: {}'.format(epoch + 1, epoch_loss / (num_train_imgs / np.ceil(batch_size))))
+        print('\rEpoch {} training finished ! Loss: {}'.format(epoch, epoch_loss / (num_train_imgs / np.ceil(batch_size))))
             
         #
         #   validate on training and validation data sets
@@ -232,10 +258,10 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 #
                 #   Iterate through training images to save and record metrics for
                 #
-                print("Saving training images and data from validation epoch %d" % (epoch+1))
+                print("Saving training images and data from validation epoch %d" % epoch)
                 for img_index in tqdm(range(num_train_imgs)):
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
-                    train_y_arr = np.round(np.squeeze(train_y_imgs[img_index] / 255.0)).astype(np.uint8)
+                    train_y_arr = np.round(np.squeeze(normalize_image(train_y_imgs[img_index].copy(), dtype=np.uint8)))
                     
                     # 
                     #   Save training metrics
@@ -266,13 +292,13 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 #
                 #   Iterate through validation images to save and record metrics for
                 #
-                print("\n[x] testing on validation set")
+                print("\n[x] testing on validation set for epoch %d" % epoch)
                 avg_auc_roc , avg_auc_pr , avg_dice , avg_acc , avg_sn , avg_sp = [], [], [], [], [], []
 
                 target.write("testing data\n")
 
                 for img_index in tqdm(range(num_test_imgs)):
-                    torch_input_image = torch.from_numpy(np.expand_dims(test_x_imgs[img_index] / 255.0, 0))
+                    torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(test_x_imgs[img_index].copy()), 0))
                     if int(args.gpu) >= 0:
                         torch_input_image = torch_input_image.cuda(int(args.gpu))
                     
@@ -284,7 +310,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     del pred_image, torch_input_image # Trying to free up space 
                     
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
-                    test_y_arr = np.round(np.squeeze(test_y_imgs[img_index] / 255.0)).astype(np.uint8)
+                    test_y_arr = np.round(np.squeeze(normalize_image(test_y_imgs[img_index].copy(), dtype=np.uint8)))
                     print_d("test_y_imgs[img_index] shape: %s" % str(train_y_imgs[img_index].shape))
                     print_d("prediction_map shape: %s" % str(prediction_map.shape))
                     
@@ -322,8 +348,8 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 #
                 #   Save validation scores
                 #
-                print("\nAverage validation accuracy for epoch # %04d" % (epoch))
-                print("Average per class validation accuracies for epoch # %04d:" % (epoch))
+                print("\nAverage validation accuracy for epoch # %04d" % epoch)
+                print("Average per class validation accuracies for epoch # %04d:" % epoch)
                 print("Validation auc_roc = ", np.mean(avg_auc_roc))
                 print("Validation auc_pr = ", np.mean(avg_auc_pr))
                 print("Validation dice = ", np.mean(avg_dice))
@@ -343,7 +369,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                 global_evaluation_epoch = epoch
                 
                 # Save pytorch model
-                torch.save(network.state_dict(), os.path.join(stage_checkpoint_exp_dir, "epoch_%d.pth" % (epoch+1)))
+                torch.save(network.state_dict(), os.path.join(stage_checkpoint_exp_dir, "epoch_%d.pth" % epoch))
 
                 #
                 #   save probability map images for stage 2
@@ -353,7 +379,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                     # replace old prob images
                     print("\nSaving images in training set")
                     for img_index in tqdm(range(num_train_imgs)):
-                        torch_input_image = torch.from_numpy(np.expand_dims(train_x_imgs[img_index] / 255.0, 0))
+                        torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(train_x_imgs[img_index].copy()), 0))
                         if int(args.gpu) >= 0:
                             torch_input_image = torch_input_image.cuda(int(args.gpu))
                         
@@ -373,7 +399,7 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                                    
                     print("\nSaving images in validation set")
                     for img_index in tqdm(range(num_test_imgs)):
-                        torch_input_image = torch.from_numpy(np.expand_dims(test_x_imgs[img_index] / 255.0, 0))
+                        torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(test_x_imgs[img_index].copy()), 0))
                         
                         if int(args.gpu) >= 0:
                             torch_input_image = torch_input_image.cuda(int(args.gpu))
@@ -392,7 +418,9 @@ def train_network(network, args, dirs, start_epoch = 0, epochs=5, batch_size=1, 
                         plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(np.uint8), fname=os.path.join(exp_prob_dir, 
                             "%s_pred.png" % (test_filenames[img_index])), cmap='gray')
 
-        
+        #
+        #   global_evaluation is mean dice score, and global_epoch is the epoch in which the best eval occurred
+        #
         print("global_evaluation = {}".format(global_evaluation))
         print("global_epoch = {}".format(global_evaluation_epoch))
 
@@ -405,60 +433,67 @@ if __name__ == "__main__":
     # Provide experiment name if none is provided
     if args.exp_name is None:
         args.exp_name = utils.date_time_stamp()
-    
-    # Make directories for output
-    exp_dir = os.path.join(args.data_dir, "output", "run_%s" % args.exp_name, "exp_%d" % args.cv)
-    stage_exp_dir = os.path.join(exp_dir, "stage_%d" % args.stage)
-    stage_checkpoint_exp_dir = os.path.join(exp_dir, "stage_checkpoint_%d" % args.stage)
-    if not os.path.isdir(exp_dir):
-        os.makedirs(exp_dir)
-    if not os.path.isdir(stage_exp_dir):
-        os.makedirs(stage_exp_dir)
-    if not os.path.isdir(stage_checkpoint_exp_dir):
-        os.makedirs(stage_checkpoint_exp_dir)
-        
-    # Pack directories for training
-    dirs = (exp_dir, stage_exp_dir, stage_checkpoint_exp_dir)
-
-    json.dump(args.__dict__, open(os.path.join(stage_exp_dir, "config.txt"), "w"), indent=4)
-    model_checkpoint_name = os.path.join(stage_exp_dir, "latest_model_" + args.model + ".ckpt")
 
     num_classes = 2
-
-    if args.stage == 1:
-        input_channels = STAGE_1_INPUT_CHANNELS # Grayscale images
-    elif args.stage == 2:
-        input_channels = STAGE_2_INPUT_CHANNELS # Grayscale images + Canny edge map + stage 1 output_image
-    else:
-        raise ValueError("args.stage error")
-
-    # instantiate network     
-    network = MobileUNet(input_channels, preset_model=args.model, num_classes=num_classes, 
-        gpu=args.gpu, gpu_4g_limit=args.gpu_4g_limit)
-
-    # assign network to cpu or gpu, and load parameters if applicable
-    if int(args.gpu) >= 0:
-        print("Using CUDA version of the network, prepare your GPU !")
-        network.cuda(int(args.gpu))
-        if args.load_model is not None:
-            network.load_state_dict(torch.load(args.load_model))
-    else:
-        print("Using CPU version of the net, this may be very slow")
-        network.cpu()
-        if args.load_model is not None:
-            network.load_state_dict(torch.load(args.model, map_location='cpu'))
-
+    
     #
-    #   Training - save the model on keyboard interrupt
+    #   If args.stage is 3, run both stages
     #
-    try:        
-        train_network(network, args, dirs, start_epoch = args.start_epoch, epochs=args.num_epochs, batch_size=args.batch_size, learning_rate=0.0001, stage=args.stage)
-    except KeyboardInterrupt:
-        torch.save(network.state_dict(), os.path.join(stage_checkpoint_exp_dir, "INTERRUPTED.pth"))
-        print("Saved interrupt")
-        print("main(): ending program at %s" % utils.date_time_stamp())
-        try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(0)
-    print("main(): ending program at %s" % utils.date_time_stamp())
+    start_stage = args.stage if args.stage < 3 else 1
+    end_stage = args.stage if args.stage < 3 else 2
+    for stage in range(start_stage, end_stage + 1): 
+    
+        # Make directories for output
+        exp_dir = os.path.join(args.data_dir, "output", "run_%s" % args.exp_name, "exp_%d" % args.cv)
+        stage_exp_dir = os.path.join(exp_dir, "stage_%d" % stage)
+        stage_checkpoint_exp_dir = os.path.join(exp_dir, "stage_checkpoint_%d" % stage)
+        if not os.path.isdir(exp_dir):
+            os.makedirs(exp_dir)
+        if not os.path.isdir(stage_exp_dir):
+            os.makedirs(stage_exp_dir)
+        if not os.path.isdir(stage_checkpoint_exp_dir):
+            os.makedirs(stage_checkpoint_exp_dir)
+        
+        # Pack directories for training
+        dirs = (exp_dir, stage_exp_dir, stage_checkpoint_exp_dir)
+        
+        # Set model input channels
+        if stage == 1:
+            input_channels = STAGE_1_INPUT_CHANNELS # Grayscale images
+        elif stage == 2:
+            input_channels = STAGE_2_INPUT_CHANNELS # Grayscale images + Canny edge map + stage 1 output_image
+        else:
+            raise ValueError("stage error")
+
+        # instantiate model     
+        network = MobileUNet(input_channels, preset_model=args.model, num_classes=num_classes, 
+            gpu=args.gpu, gpu_4g_limit=args.gpu_4g_limit)
+
+        # assign network to cpu or gpu, and load parameters if applicable
+        if int(args.gpu) >= 0:
+            print("Using CUDA version of the network, prepare your GPU !")
+            network.cuda(int(args.gpu))
+            if args.load_model is not None:
+                network.load_state_dict(torch.load(args.load_model))
+        else:
+            print("Using CPU version of the net, this may be very slow")
+            network.cpu()
+            if args.load_model is not None:
+                network.load_state_dict(torch.load(args.model, map_location='cpu'))
+
+        #
+        #   Training - save the model on keyboard interrupt
+        #
+        try:        
+            train_network(network, args, dirs, stage)
+            del network
+            torch.cuda.empty_cache()
+        except KeyboardInterrupt:
+            torch.save(network.state_dict(), os.path.join(stage_checkpoint_exp_dir, "INTERRUPTED.pth"))
+            print("Saved interrupt")
+            print("main(): ending program at %s" % utils.date_time_stamp())
+            try:
+                sys.exit(0)
+            except SystemExit:
+                os._exit(0)
+    print("\n\nmain(): ending program at %s" % utils.date_time_stamp())
