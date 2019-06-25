@@ -179,12 +179,13 @@ def train_network(network, args, dirs, stage):
                         input_image_batch.append(normalize_image(augmented_x))
                         output_image_batch.append(normalize_image(augmented_y))
                         image_count+=1
-                        print("\rAugmented image_count: %d" % image_count, end=' ')
                         
             else:
                 #   Add normalized images to batch and turn them into pytorch Variable
                 input_image_batch.append(normalize_image(input_image))
                 output_image_batch.append(normalize_image(output_image))
+
+        print("Augmented image_count: %d" % image_count, end=' ')
 
         # Need to cast the images to the correct float type for torch FloatTensor to work
         input_image_batch = np.array(input_image_batch, dtype=dtype_0_1())
