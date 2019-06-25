@@ -63,6 +63,9 @@ def augment_imageset(input_img, label_img, probability_threshold=0.2, flip=True,
     - label_img - of shape (num_channels, height, width); ***data should be in integer 0-255 format***
     - probability_threshold - 0.0 to 1.0 (0% to 100%)
     """
+    # Important to set np.random.seed() to None to counteract the constant seed set on data loading
+    np.random.seed()
+    
     # Copy Arrays so that we don't run into any array shared storage issues
     x_img = input_img.copy()
     y_img = label_img.copy()
