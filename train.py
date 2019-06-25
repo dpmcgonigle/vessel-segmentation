@@ -50,7 +50,7 @@ def get_args():
     # data augmentation
     parser.add_argument('--augment_data', type=str2bool, default=True, help="Turns on data augmentation(flip, rotate, translate, noise, tophat)")
     parser.add_argument('--augmentation_threshold', type=float, default=0.25, help="randomly perform one of the augmentation procedures this % of the time")
-    parser.add_argument('--expand_dataset', type=int, default=3, help="multiply dataset by this number with data augmentation")
+    parser.add_argument('--expand_dataset', type=int, default=5, help="multiply dataset by this number with data augmentation")
     parser.add_argument('--flip', type=str2bool, default=True)
     parser.add_argument('--rotate', type=str2bool, default=True)
     parser.add_argument('--translate', type=str2bool, default=True)
@@ -162,6 +162,7 @@ def train_network(network, args, dirs, stage):
         #
         input_image_batch = []
         output_image_batch = []
+        image_count=1
         for img_index in tqdm(range(0, num_train_imgs)):  
             # Starting images
             input_image = train_x_imgs[img_index].copy()
@@ -175,8 +176,10 @@ def train_network(network, args, dirs, stage):
                         translate=args.translate, tophat=args.tophat, noise=args.noise)
                     # Make sure the arrays are not the same
                     if not np.array_equal(input_image, augmented_x):
-                        input_image_batch.append(normalize_image(input_image))
-                        output_image_batch.append(normalize_image(output_image))
+                        input_image_batch.append(normalize_image(augmented_x))
+                        output_image_batch.append(normalize_image(augmented_y))
+                        image_count+=1
+                        print("\rAugmented image_count: %d" % image_count, end=' ')
                         
             else:
                 #   Add normalized images to batch and turn them into pytorch Variable
