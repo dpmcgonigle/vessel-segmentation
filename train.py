@@ -264,6 +264,17 @@ def train_network(network, args, dirs, stage):
                 #
                 print("Saving training images and data from validation epoch %d" % epoch)
                 for img_index in tqdm(range(num_train_imgs)):
+                    torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(train_x_imgs[img_index].copy()), 0))
+                    if int(args.gpu) >= 0:
+                        torch_input_image = torch_input_image.cuda(int(args.gpu))
+                    
+                    # Run validation images through network
+                    pred_image = network.forward(torch_input_image)
+                    
+                    # argmax is used to compress the classification predictions down to a class prediction map
+                    prediction_map = np.argmax(pred_image.detach().cpu().numpy(), 1)
+                    del pred_image, torch_input_image # Trying to free up space 
+                    
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
                     train_y_arr = np.round(np.squeeze(normalize_image(train_y_imgs[img_index].copy(), dtype=np.uint8)))
                     
@@ -271,9 +282,9 @@ def train_network(network, args, dirs, stage):
                     #   Save training metrics
                     #
                     train_filename = train_filenames[img_index]
-                    auc_roc = AUC_ROC(train_y_arr, np_train_x_preds[img_index])
-                    auc_pr = AUC_PR(train_y_arr, np_train_x_preds[img_index])
-                    dice_coef, acc, sens, spec = eval_metrics(train_y_arr, np_train_x_preds[img_index])
+                    auc_roc = AUC_ROC(train_y_arr, prediction_map)
+                    auc_pr = AUC_PR(train_y_arr, prediction_map)
+                    dice_coef, acc, sens, spec = eval_metrics(train_y_arr, prediction_map)
 
                     target.write("%s,%f,%f,%f,%f,%f,%f\n" % (train_filename, auc_roc, auc_pr, dice_coef, acc, sens, spec))
 
@@ -281,7 +292,7 @@ def train_network(network, args, dirs, stage):
                     #   Save training images; transpose input image shape to (c x h x w) for imsave (rgb) if stage==2
                     #
                     input_image = np.squeeze(np.transpose(train_x_imgs[img_index], axes=(1,2,0))).astype(np.uint8)
-                    output_image = (np.squeeze(np_train_x_preds[img_index])*255.0).astype(np.uint8)
+                    output_image = (np.squeeze(prediction_map)*255.0).astype(np.uint8)
                     label_image = np.squeeze(train_y_imgs[img_index]).astype(np.uint8)
                     plt.imsave(arr=input_image,
                                fname=os.path.join(stage_epoch_exp_train_dir, "%s_x.png" % (train_filenames[img_index])), 
