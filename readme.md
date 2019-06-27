@@ -10,9 +10,18 @@ Stage 2: Combine the original 512 x 512 grayscale image with the 512 x 512 segme
 ### Args
 Most of the command-line arguments have defaults built in, so that you can run the program with minimal specification, though I set the defaults to agree with my machine, so have a look-see.
 
---args(implemented so far): --gpus (# of them), --gpu_4g_limit (bool; shrink model to fit 4GB GPU with batch_size 2 for 512x512 images), --data_path, 
---prob_dir (directory for probability maps used in Stage 2, which are the output of Stage 1), -num_epochs, --batch_size, 
---validate_epoch (How often to validate training and validation images), --cv-model (MobileUNet-Skip, MobileUNet), --stage (1 or 2)
+--args(implemented so far): --gpu (which one), --gpu_4g_limit (bool; shrink model to fit 4GB GPU with batch_size 2 for 512x512 images), --data_path, --exp_name (experiment name), 
+--prob_dir (directory for probability maps used in Stage 2, which are the output of Stage 1), -epochs_per_stage, --batch_size, --start_epoch, 
+--validate_epoch (How often to validate training and validation images), --cv-model (MobileUNet-Skip, MobileUNet), --stage (1 or 2, or 3 for both)
+Data augmentation:
+--augment_data (bool; Turns on data augmentation like flip, rotate, translate, noise, tophat), --augmentation_threshold (probability to randomly perform augmentation procedures, 
+--expand_dataset (multiply dataset by this number of images per real image data augmentation), --flip (bool; flips 'augmentation_threshold' % of images), 
+--rotate (bool; rotates 'augmentation_threshold' % of images), --translate (bool; translates 'augmentation_threshold' % of images), 
+--tophat (bool; tophats or bottomhats 'augmentation_threshold' % of images), --noise (bool; adds s&p or gaussian noise to 'augmentation_threshold' % of images), 
+
+### Speaking of Data Augmentation, here is an example:
+
+![Data Augmentation](./images/augmentation.jpg)
 
 ### Data
 

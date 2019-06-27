@@ -50,7 +50,7 @@ def get_args():
     # data augmentation
     parser.add_argument('--augment_data', type=str2bool, default=True, help="Turns on data augmentation(flip, rotate, translate, noise, tophat)")
     parser.add_argument('--augmentation_threshold', type=float, default=0.25, help="randomly perform one of the augmentation procedures this % of the time")
-    parser.add_argument('--expand_dataset', type=int, default=5, help="multiply dataset by this number with data augmentation")
+    parser.add_argument('--expand_dataset', type=int, default=5, help="multiply dataset by this number of images per real image data augmentation")
     parser.add_argument('--flip', type=str2bool, default=True)
     parser.add_argument('--rotate', type=str2bool, default=True)
     parser.add_argument('--translate', type=str2bool, default=True)
@@ -84,6 +84,11 @@ def train_network(network, args, dirs, stage):
     epochs = args.epochs_per_stage
     batch_size = args.batch_size
     learning_rate = args.learning_rate
+    
+    # Used for graphing - saved every validate_epoch epochs
+    training_losses, testing_losses = np.empty((1,0)), np.empty((1,0))
+    training_evaluation_metrics = np.empty((6,0)) # of rows are auc_roc, auc_pr, dice_coef, acc, sens, spec
+    testing_evaluation_metrics = np.empty((6,0)) # of rows are auc_roc, auc_pr, dice_coef, acc, sens, spec
 
     print("\nPreparing the model for training on stage %d..." % stage)
     
@@ -121,6 +126,9 @@ def train_network(network, args, dirs, stage):
     for epoch in tqdm(range(start_epoch, epochs+1)):
         # I call this function several times throughout training to ensure that garbage has been collected
         torch.cuda.empty_cache()
+        
+        # If model.eval() was called previously during validation, we need to turn model.train() back on
+        network.train()
         
         # initialize epoch_loss to 0
         epoch_loss = 0
@@ -162,11 +170,14 @@ def train_network(network, args, dirs, stage):
         #
         input_image_batch = []
         output_image_batch = []
-        image_count=1
+        image_count=0
         for img_index in tqdm(range(0, num_train_imgs)):  
             # Starting images
             input_image = train_x_imgs[img_index].copy()
             output_image = train_y_imgs[img_index].copy()
+            
+            # Boolean to track whether original input image has already been added to batch (data augmentation)
+            original_image_used = False
             
             # Data augmentation
             if args.augment_data:
@@ -174,24 +185,30 @@ def train_network(network, args, dirs, stage):
                     augmented_x, augmented_y = augment_imageset(input_image, output_image,
                         probability_threshold=args.augmentation_threshold, flip=args.flip, rotate=args.rotate,
                         translate=args.translate, tophat=args.tophat, noise=args.noise)
-                    # Make sure the arrays are not the same
-                    if not np.array_equal(input_image, augmented_x):
-                        input_image_batch.append(normalize_image(augmented_x))
-                        output_image_batch.append(normalize_image(augmented_y))
-                        image_count+=1
+                        
+                    # Make sure the original input image is passed into the image batch a maximum of one time
+                    if np.array_equal(input_image, augmented_x):
+                        if original_image_used:
+                            continue # Don't use this image
+                        original_image_used = True
+                        
+                    input_image_batch.append(normalize_image(augmented_x))
+                    output_image_batch.append(normalize_image(augmented_y))
+                    image_count += 1
                         
             else:
                 #   Add normalized images to batch and turn them into pytorch Variable
                 input_image_batch.append(normalize_image(input_image))
                 output_image_batch.append(normalize_image(output_image))
+                image_count += 1
 
-        print("Augmented image_count: %d" % image_count, end=' ')
+        print("Total image_count (including augmentation, if applicable): %d" % image_count)
 
         # Need to cast the images to the correct float type for torch FloatTensor to work
         input_image_batch = np.array(input_image_batch, dtype=dtype_0_1())
         output_image_batch = np.array(output_image_batch, dtype=dtype_0_1())
         
-        for mini_batch in range(int(np.ceil(num_train_imgs / batch_size))):
+        for mini_batch in range(int(np.ceil(image_count / batch_size))):
             training_batch_x = input_image_batch[mini_batch*batch_size : (mini_batch+1)*batch_size]
             training_batch_y = output_image_batch[mini_batch*batch_size : (mini_batch+1)*batch_size]
             torch_training_batch_x = torch.from_numpy(training_batch_x)
@@ -208,25 +225,13 @@ def train_network(network, args, dirs, stage):
             #
             batch_predictions = network.forward(torch_training_batch_x)
             print_d("batch_predictions shape: %s" % str(batch_predictions.shape))
-
-            #
-            #   Save the output if this is a validation epoch
-            #
-            if epoch % int(args.validate_epoch) == 0:
-                # argmax is used to compress the classification predictions down to a class prediction map
-                batch_prediction_maps = np.argmax(batch_predictions.detach().cpu().numpy(), 1)
-                print_d("batch_prediction_maps shape: %s" % str(batch_prediction_maps.shape))
-                
-                # stack the prediction map batch vertically to np_train_x_preds
-                np_train_x_preds = np.vstack((np_train_x_preds, batch_prediction_maps))
                 
             # target needs to be type long, with no singular dimensions
             loss = criterion(batch_predictions, torch.squeeze(torch_training_batch_y,1).long()) # input, target
-            print_d("mini-batch loss %.03f" % (loss.cpu()))
             
             epoch_loss += float(loss.detach().cpu())
             
-            print('\r Epoch {0:d} --- {1:.2f}% complete --- mini-batch loss: {2:.6f}'.format(epoch, mini_batch * batch_size / num_train_imgs * 100, loss.item()), end=' ')
+            print('\r Epoch {0:d} --- {1:.2f}% complete --- mini-batch loss: {2:.6f}'.format(epoch, mini_batch * batch_size / image_count * 100, loss.item()), end=' ')
             
             #
             #   Zero out gradients and then back-propogate & step forward
@@ -236,12 +241,16 @@ def train_network(network, args, dirs, stage):
             optimizer.step()
             torch.cuda.empty_cache()
 
-        print('\rEpoch {} training finished ! Loss: {}'.format(epoch, epoch_loss / (num_train_imgs / np.ceil(batch_size))))
+        print('\rEpoch {} training finished ! Loss: {}'.format(epoch, epoch_loss / (image_count / np.ceil(batch_size))))
             
         #
         #   validate on training and validation data sets
         #
-        if epoch % int(args.validate_epoch) == 0:
+        if epoch % int(args.validate_epoch) == 0 or epoch == 1:
+        
+            # Turn off batch norm, dropout, and don't worry about storing computation graph
+            network.eval()
+        
             #
             # Create directories and files
             #
@@ -263,17 +272,25 @@ def train_network(network, args, dirs, stage):
                 #   Iterate through training images to save and record metrics for
                 #
                 print("Saving training images and data from validation epoch %d" % epoch)
+                avg_auc_roc , avg_auc_pr , avg_dice , avg_acc , avg_sn , avg_sp = [], [], [], [], [], []
+                train_loss = 0
                 for img_index in tqdm(range(num_train_imgs)):
-                    torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(train_x_imgs[img_index].copy()), 0))
-                    if int(args.gpu) >= 0:
-                        torch_input_image = torch_input_image.cuda(int(args.gpu))
-                    
-                    # Run validation images through network
-                    pred_image = network.forward(torch_input_image)
-                    
-                    # argmax is used to compress the classification predictions down to a class prediction map
-                    prediction_map = np.argmax(pred_image.detach().cpu().numpy(), 1)
-                    del pred_image, torch_input_image # Trying to free up space 
+                    with torch.no_grad():
+                        torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(train_x_imgs[img_index].copy()), 0))
+                        torch_label_image = torch.from_numpy(np.expand_dims(normalize_image(train_y_imgs[img_index].copy()), 0))
+                        if int(args.gpu) >= 0:
+                            torch_input_image = torch_input_image.cuda(int(args.gpu))
+                            torch_label_image = torch_label_image.cuda(int(args.gpu))
+                        
+                        # Run validation images through network
+                        pred_image = network.forward(torch_input_image)
+                        
+                        # Add image loss to train_loss
+                        train_loss += criterion(pred_image, torch.squeeze(torch_label_image,1).long()).item() # input, target
+                        
+                        # argmax is used to compress the classification predictions down to a class prediction map
+                        prediction_map = np.argmax(pred_image.detach().cpu().numpy(), 1)
+                        del pred_image, torch_input_image # Trying to free up space 
                     
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
                     train_y_arr = np.round(np.squeeze(normalize_image(train_y_imgs[img_index].copy(), dtype=np.uint8)))
@@ -285,6 +302,13 @@ def train_network(network, args, dirs, stage):
                     auc_roc = AUC_ROC(train_y_arr, prediction_map)
                     auc_pr = AUC_PR(train_y_arr, prediction_map)
                     dice_coef, acc, sens, spec = eval_metrics(train_y_arr, prediction_map)
+                    
+                    avg_auc_roc.append(auc_roc)
+                    avg_auc_pr.append(auc_pr)
+                    avg_dice.append(dice_coef)
+                    avg_acc.append(acc)
+                    avg_sn.append(sens)
+                    avg_sp.append(spec)  
 
                     target.write("%s,%f,%f,%f,%f,%f,%f\n" % (train_filename, auc_roc, auc_pr, dice_coef, acc, sens, spec))
 
@@ -303,7 +327,17 @@ def train_network(network, args, dirs, stage):
                     plt.imsave(arr=label_image,
                                fname=os.path.join(stage_epoch_exp_train_dir, "%s_y.png" % (train_filenames[img_index])), 
                                cmap='gray')
-
+                               
+                #   Save training loss
+                training_losses = np.append(training_losses, (train_loss / num_train_imgs))
+                
+                #
+                #   Save training evaluation scores
+                #
+                temp_array = np.array([np.mean(avg_auc_roc),np.mean(avg_auc_roc),
+                    np.mean(avg_dice),np.mean(avg_acc),np.mean(avg_sn),np.mean(avg_sp)]).reshape(6,1)
+                training_evaluation_metrics = np.hstack([training_evaluation_metrics, temp_array])
+                
                 #
                 #   Iterate through validation images to save and record metrics for
                 #
@@ -311,18 +345,25 @@ def train_network(network, args, dirs, stage):
                 avg_auc_roc , avg_auc_pr , avg_dice , avg_acc , avg_sn , avg_sp = [], [], [], [], [], []
 
                 target.write("testing data\n")
-
+                test_loss = 0
                 for img_index in tqdm(range(num_test_imgs)):
-                    torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(test_x_imgs[img_index].copy()), 0))
-                    if int(args.gpu) >= 0:
-                        torch_input_image = torch_input_image.cuda(int(args.gpu))
-                    
-                    # Run validation images through network
-                    pred_image = network.forward(torch_input_image)
-                    
-                    # argmax is used to compress the classification predictions down to a class prediction map
-                    prediction_map = np.argmax(pred_image.detach().cpu().numpy(), 1)
-                    del pred_image, torch_input_image # Trying to free up space 
+                    with torch.no_grad():
+                        torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(test_x_imgs[img_index].copy()), 0))
+                        torch_label_image = torch.from_numpy(np.expand_dims(normalize_image(test_y_imgs[img_index].copy()), 0))
+                        
+                        if int(args.gpu) >= 0:
+                            torch_input_image = torch_input_image.cuda(int(args.gpu))
+                            torch_label_image = torch_label_image.cuda(int(args.gpu))
+                        
+                        # Run validation images through network
+                        pred_image = network.forward(torch_input_image)
+                        
+                        # Add image loss to train_loss
+                        test_loss += criterion(pred_image, torch.squeeze(torch_label_image,1).long()).item() # input, target
+                        
+                        # argmax is used to compress the classification predictions down to a class prediction map
+                        prediction_map = np.argmax(pred_image.detach().cpu().numpy(), 1)
+                        del pred_image, torch_input_image # Trying to free up space 
                     
                     # Remove singular dimensions from train_y_imgs (the number of channels in [n x c x h x w])
                     test_y_arr = np.round(np.squeeze(normalize_image(test_y_imgs[img_index].copy(), dtype=np.uint8)))
@@ -360,9 +401,16 @@ def train_network(network, args, dirs, stage):
                                fname=os.path.join(stage_epoch_exp_test_dir, "%s_y.png" % (test_filenames[img_index])), 
                                cmap='gray')                   
             
+                #   Save validation loss
+                testing_losses = np.append(testing_losses, (test_loss / num_test_imgs))
+                
                 #
                 #   Save validation scores
                 #
+                temp_array = np.array([np.mean(avg_auc_roc),np.mean(avg_auc_roc),
+                    np.mean(avg_dice),np.mean(avg_acc),np.mean(avg_sn),np.mean(avg_sp)]).reshape(6,1)
+                testing_evaluation_metrics = np.hstack([testing_evaluation_metrics, temp_array])
+                
                 print("\nAverage validation accuracy for epoch # %04d" % epoch)
                 print("Average per class validation accuracies for epoch # %04d:" % epoch)
                 print("Validation auc_roc = ", np.mean(avg_auc_roc))
@@ -379,7 +427,7 @@ def train_network(network, args, dirs, stage):
             #   saving model if the score is better than previous scores
             #
             if np.mean(avg_dice) > global_evaluation and epoch > 0:
-                print("\n[x] saving model to %s" % model_checkpoint_name)
+                print("\n[x] saving model to %s (highest evaluation score so far)" % model_checkpoint_name)
                 global_evaluation = np.mean(avg_dice)
                 global_evaluation_epoch = epoch
                 
@@ -392,7 +440,7 @@ def train_network(network, args, dirs, stage):
                 if stage==1:
                     
                     # replace old prob images
-                    print("\nSaving images in training set")
+                    print("\nSaving probability maps from training set (highest evaluation score so far)")
                     for img_index in tqdm(range(num_train_imgs)):
                         torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(train_x_imgs[img_index].copy()), 0))
                         if int(args.gpu) >= 0:
@@ -412,7 +460,7 @@ def train_network(network, args, dirs, stage):
                         plt.imsave(arr=(np.squeeze(output_image)*255.0).astype(np.uint8), fname=os.path.join(exp_prob_dir, 
                             "%s_pred.png" % (train_filenames[img_index])), cmap='gray')
                                    
-                    print("\nSaving images in validation set")
+                    print("\nSaving probability maps from validation set (highest evaluation score so far)")
                     for img_index in tqdm(range(num_test_imgs)):
                         torch_input_image = torch.from_numpy(np.expand_dims(normalize_image(test_x_imgs[img_index].copy()), 0))
                         
@@ -438,7 +486,28 @@ def train_network(network, args, dirs, stage):
         #
         print("global_evaluation = {}".format(global_evaluation))
         print("global_epoch = {}".format(global_evaluation_epoch))
-
+        
+    #
+    #   MAKE IMAGES! First Loss function, then evaluation metrics
+    #
+    plt.figure()
+    plt.plot(training_losses.ravel(), label="Training Losses")
+    plt.plot(testing_losses.ravel(), label="Validation Losses")
+    plt.ylabel("Loss")
+    plt.xlabel("Epoch")
+    plt.legend(loc='upper left')
+    plt.savefig(os.path.join(stage_exp_dir, "losses.png"))
+    
+    metrics = ['auc_roc', 'auc_pr', 'dice_coef', 'acc', 'sens', 'spec']
+    for i in range(len(metrics)):
+        plt.figure()
+        plt.plot(training_evaluation_metrics[i], label="Training %s"%metrics[i])
+        plt.plot(testing_evaluation_metrics[i], label="Validation %s"%metrics[i])    
+        plt.ylabel("%s Value"%metrics[i])
+        plt.xlabel("Epoch")
+        plt.legend(loc='upper left')
+        plt.savefig(os.path.join(stage_exp_dir, "%s.png"%metrics[i]))
+    
 ############################### MAAAAAAAAINS ###############################
 if __name__ == "__main__":
     print("main(): starting program at %s" % utils.date_time_stamp())
