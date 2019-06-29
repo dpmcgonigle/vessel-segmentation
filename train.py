@@ -490,9 +490,13 @@ def train_network(network, args, dirs, stage):
     #
     #   MAKE IMAGES! First Loss function, then evaluation metrics
     #
+    # x is for x axis (epochs) in the metrics charts
+    x = [start_epoch] + [x for x in range(args.validate_epoch, args.epochs_per_stage, args.validate_epoch)]
+    
     plt.figure()
-    plt.plot(training_losses.ravel(), label="Training Losses")
-    plt.plot(testing_losses.ravel(), label="Validation Losses")
+    plt.plot(x, training_losses.ravel(), label="Training Losses")
+    plt.plot(x, testing_losses.ravel(), label="Validation Losses")
+    plt.title("Stage %d Loss" % (stage))
     plt.ylabel("Loss")
     plt.xlabel("Epoch")
     plt.legend(loc='upper left')
@@ -501,8 +505,9 @@ def train_network(network, args, dirs, stage):
     metrics = ['auc_roc', 'auc_pr', 'dice_coef', 'acc', 'sens', 'spec']
     for i in range(len(metrics)):
         plt.figure()
-        plt.plot(training_evaluation_metrics[i], label="Training %s"%metrics[i])
-        plt.plot(testing_evaluation_metrics[i], label="Validation %s"%metrics[i])    
+        plt.plot(x, training_evaluation_metrics[i], label="Training %s"%metrics[i])
+        plt.plot(x, testing_evaluation_metrics[i], label="Validation %s"%metrics[i])    
+        plt.title("Stage %d %s" % (stage, metrics[i]))
         plt.ylabel("%s Value"%metrics[i])
         plt.xlabel("Epoch")
         plt.legend(loc='upper left')
