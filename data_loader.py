@@ -181,7 +181,7 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
         new_shape = [img_height, img_width, num_channels]
         
         # Get filenames for train and val probability maps and load images as np arrays if stage == 2
-        train_prob_data_paths, test_prob_data_paths = load_prob_filenames(data_dir=data_dir, prob_dir=prob_dir, cv=0, cv_max=5)
+        train_prob_data_paths, test_prob_data_paths = load_prob_filenames(data_dir=data_dir, prob_dir=prob_dir, cv=0, cv_max=cv_max)
         
         train_prob_images = reshape_transpose( 
             load_image_batch(train_prob_data_paths, image_type=image_type) , 
