@@ -32,9 +32,6 @@ def get_args():
     returns command-line options from argparse
     """
     parser = argparse.ArgumentParser()
-    # do we need these? Not implemented yet.
-    # parser.add_argument('--patch_size', type=int, default=384)
-    # parser.add_argument('--full_size', type=int, default=512)
     # execution information
     parser.add_argument('--exp_name', type=str, help="Exp name will be used as dir name in data_dir")
     parser.add_argument('--gpu', type=str, default=0, help="0 for GPU device 0, 1 for GPU device 1, -1 for CPU")
@@ -46,7 +43,8 @@ def get_args():
     parser.add_argument('--start_epoch', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--validate_epoch', type=int, default=30)
-    parser.add_argument('--cv', type=int, default=0) # cross validation, CV=5
+    parser.add_argument('--cv', type=int, default=0, help="cross validation fold [0 : (cv_folds-1)]")
+    parser.add_argument('--cv_folds', type=int, default=10, ) 
     # data augmentation
     parser.add_argument('--augment_data', type=str2bool, default=True, help="Turns on data augmentation(flip, rotate, translate, noise, tophat)")
     parser.add_argument('--augmentation_threshold', type=float, default=0.25, help="randomly perform one of the augmentation procedures this % of the time")
@@ -61,6 +59,7 @@ def get_args():
     parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
     parser.add_argument('--learning_rate', type=float, default=0.0001)
     parser.add_argument('--stage', type=int, default=3, help="1 for first stage, 2 for second, 3 for both")
+    parser.add_argument('--dropout', type=float, default=0.0, help="Dropout values can be [0.0 : 1.0) (not 1.0!)")
     # If you want to call this get_args() from a Jupyter Notebook, you need to uncomment -f line. Them's the rules.
     # parser.add_argument('-f', '--file', help='Path for input file.')
     return parser.parse_args()
@@ -136,7 +135,7 @@ def train_network(network, args, dirs, stage):
         #   load data before training
         print("\nepoch %d loading data ......" % epoch)
         data, filenames = load_train_test_images(data_dir=args.data_dir, prob_dir=args.prob_dir, 
-            cv=args.cv, stage=stage)
+            cv=args.cv, stage=stage, cv_max=args.cv_folds)
         
         #
         #   Unpack Images from data; all in (n x c x h x w) format

@@ -29,7 +29,9 @@ class MobileUNet(nn.Module):
     the depthwise separable convolutions to ensure it runs fine on my machine. - McGonigle
     if gpu is -1, run on CPU.  Otherwise, run on GPU device specified
     """
-    def __init__(self, input_channels=1, preset_model="MobileUNet-Skip", num_classes=2, gpu=-1, gpu_4g_limit=True):
+    def __init__(self, input_channels=1, preset_model="MobileUNet-Skip", num_classes=2, gpu=-1, gpu_4g_limit=True,
+        dropout=0.0
+    ):
         """
         Constructor for MobileUNet
         inputs:
@@ -58,6 +60,8 @@ class MobileUNet(nn.Module):
         # Boolean determines whether GPU is limited to 4GB RAM.  If so, run with max batch size of 2
         self.gpu_4g_limit = gpu_4g_limit
         
+        self.dropout=dropout
+        
         #####################
         # Downsampling path 
         #####################
@@ -71,7 +75,7 @@ class MobileUNet(nn.Module):
         #
         self.down1 = Sequential(
             self.ConvBlock(input_channels = input_channels, n_filters = 64),
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
         
@@ -80,7 +84,7 @@ class MobileUNet(nn.Module):
         #
         self.down2 = Sequential(
             self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 128),
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
 
@@ -89,8 +93,8 @@ class MobileUNet(nn.Module):
         #
         self.down3 = Sequential(
             self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 256),
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=False), 
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
 
@@ -99,8 +103,8 @@ class MobileUNet(nn.Module):
         #
         self.down4 = Sequential(
             self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
 
@@ -109,8 +113,8 @@ class MobileUNet(nn.Module):
         #
         self.down5 = Sequential(
             self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
 
@@ -126,8 +130,8 @@ class MobileUNet(nn.Module):
         #
         self.up1 = Sequential(
             self.ConvTransposeBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit),
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
             self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512)
         )
 
@@ -136,8 +140,8 @@ class MobileUNet(nn.Module):
         #
         self.up2 = Sequential(
             self.ConvTransposeBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
             self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 256)
         )
 
@@ -146,8 +150,8 @@ class MobileUNet(nn.Module):
         #
         self.up3 = Sequential(
             self.ConvTransposeBlock(input_channels = 256, n_filters = 256),
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=False), 
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
             self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 128)
         )
 
@@ -156,7 +160,7 @@ class MobileUNet(nn.Module):
         #
         self.up4 = Sequential(
             self.ConvTransposeBlock(input_channels = 128, n_filters = 128),
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=self.gpu_4g_limit), 
             self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 64)
         )
 
@@ -165,7 +169,7 @@ class MobileUNet(nn.Module):
         #
         self.up5 = Sequential(
             self.ConvTransposeBlock(input_channels = 64, n_filters = 64),
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=False), 
+            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=self.gpu_4g_limit), 
             self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64)
         )
 
@@ -237,18 +241,21 @@ class MobileUNet(nn.Module):
         ((W - K - 2P) / S) + 1, where W = input dimension, K = filter size, P = padding, S = stride
         EX: W = 512, K = 3, P = 1, S = 1 will yield the same size image after convolution
         """
-        net = Sequential(
-            # Skip pointwise by setting num_outputs=None
-            Conv2d(in_channels = input_channels, out_channels = n_filters, kernel_size=[1, 1]),
-            BatchNorm2d(n_filters),
-            ReLU()
-        )
-        return net
+        net = []
+        
+        # Skip pointwise by setting num_outputs=None
+        net.append( Conv2d(in_channels = input_channels, out_channels = n_filters, kernel_size=[1, 1]) )
+        
+        net.append( BatchNorm2d(n_filters) )
+        
+        net.append( ReLU() )
+        
+        return Sequential(*net)
         #####################
         #      End ConvBlock     
         #####################
     # input 512 , output 256
-    def DepthwiseSeparableConvBlock(self, input_channels, n_filters, kernel_size=[3, 3], slim=True):
+    def DepthwiseSeparableConvBlock(self, input_channels, n_filters, kernel_size=[3, 3], slim=False):
         """
         Builds the Depthwise Separable conv block for MobileNets
         Apply successivly a 2D separable convolution, BatchNormalization relu, conv, BatchNormalization, relu
@@ -260,24 +267,31 @@ class MobileUNet(nn.Module):
         # If groups = nInputPlane, kernel=(K, 1), (and before is a Conv2d layer with groups=1 and kernel=(1, K)), then it is separable.
         # https://discuss.pytorch.org/t/depthwise-and-separable-convolutions-in-pytorch/7315
         
-        if not slim and self.gpu_4g_limit:
-            net = Sequential()
-        else:
-            net = Sequential(
-                # Seperable convolution 
-                Conv2d(in_channels = input_channels, out_channels = input_channels, kernel_size=[3,3], groups=input_channels, padding = 1),
-
-                BatchNorm2d(input_channels),
-                ReLU(),
-            
-                # Point-wise convolution
-                Conv2d(in_channels = input_channels, out_channels = n_filters, kernel_size=[1, 1]),
-
-                BatchNorm2d(n_filters),
-                ReLU()
-            )
         
-        return net
+        net = []
+        
+        # Sequential(*net) will be empty if self.gpu_4g_limit == True
+        if not slim:
+        
+            # Seperable convolution 
+            net.append(
+                Conv2d(in_channels = input_channels, out_channels = input_channels, 
+                kernel_size=[3,3], groups=input_channels, padding = 1)
+            )
+
+            if self.dropout > 0.0:
+                net.append( nn.Dropout(self.dropout) )
+
+            net.append( BatchNorm2d(input_channels) )
+            net.append( ReLU() )
+        
+            # Point-wise convolution
+            net.append( Conv2d(in_channels = input_channels, out_channels = n_filters, kernel_size=[1, 1]) )
+
+            net.append( BatchNorm2d(n_filters) )
+            net.append( ReLU() )
+
+        return Sequential(*net)
         #####################
         #      End DepthwiseSeparableConvBlock
         #####################
@@ -290,11 +304,17 @@ class MobileUNet(nn.Module):
         S ( W - 1 ) + F - 2P, where W = input dimension, K = filter size, P = padding, S = stride
         EX: W = 256, K = 2, P = 0, S = 2 will yield double the same size image after convolution
         """
-        net = Sequential(
-            ConvTranspose2d(in_channels = input_channels, out_channels = n_filters, kernel_size=kernel_size, stride=[2, 2]),
-            ReLU(BatchNorm2d(n_filters))
+        net = []
+        
+        # Transpose Convolution
+        net.append( ConvTranspose2d(in_channels = input_channels, out_channels = n_filters, 
+            kernel_size=kernel_size, stride=[2, 2])
         )
-        return net
+        
+        # Batch Norm -> Relu
+        net.append( ReLU(BatchNorm2d(n_filters)) )
+        
+        return Sequential(*net)
         #####################
         #      End ConvTransposeBlock
         #####################
