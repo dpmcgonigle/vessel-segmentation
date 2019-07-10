@@ -562,12 +562,12 @@ if __name__ == "__main__":
             print("Using CUDA version of the network, prepare your GPU !")
             network.cuda(int(args.gpu))
             if args.load_model is not None:
-                network.load_state_dict(torch.load(args.load_model))
+                network.load_state_dict(torch.load(os.path.join(stage_checkpoint_exp_dir, args.load_model)))
         else:
             print("Using CPU version of the net, this may be very slow")
             network.cpu()
             if args.load_model is not None:
-                network.load_state_dict(torch.load(args.model, map_location='cpu'))
+                network.load_state_dict(torch.load(os.path.join(stage_checkpoint_exp_dir, args.load_model), map_location='cpu'))
 
         #
         #   Training - save the model on keyboard interrupt

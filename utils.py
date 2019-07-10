@@ -16,10 +16,11 @@ from skimage.util import random_noise
 #   List of functions:
 #       install                 - installs a python module; good for lazy installations in jupyter notebook
 #       randseed                - sets the random seed for reproducibility throughout suite
-#       str2bool
+#       augment_imageset        - input imageset from data_loader.load_train_test_images and get augmented images back
+#       str2bool                - transform command line input into boolean value
 #       filepath_to_name        - returns file name from full path, with or without ext (specify)
 #       BtoGB                   - converts Bytes to GBs
-#       get_memory               - returns string of GPU / CPU usage
+#       get_memory              - returns string of GPU / CPU usage
 #       print_d                 - prints (or writes) debugging information
 #       one_hot_it              - Convert label array to one-hot replacing s with a vector of length num_classes
 #       reverse_one_hot         - Transform one-hot 3D array (H x W x num_classes) to (H x W x 1), where 1 = class
