@@ -565,7 +565,7 @@ if __name__ == "__main__":
             network.cuda(int(args.gpu))
                     
             # Load specified model if --load_model was used
-            elif args.load_model is not None:
+            if args.load_model is not None:
                 network.load_state_dict(torch.load(os.path.join(stage_checkpoint_exp_dir, args.load_model)))
             
         else:
