@@ -598,7 +598,7 @@ if __name__ == "__main__":
                         #   relies on name of model being "epoch_120.pth", "epoch_30.pth", or "epoch_1.pth"
                         if int(m.split('_')[-1].split('.')[0]) > int(model.split('_')[-1].split('.')[0]):
                             model = m
-                    network.load_state_dict(torch.load(model), map_location='cpu'))
+                    network.load_state_dict(torch.load(model), map_location='cpu')
                 except Exception as e:
                     print("ERROR loading model: %s" % str(e))
                     
