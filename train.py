@@ -57,8 +57,7 @@ def get_args():
     parser.add_argument('--noise', type=str2bool, default=True)
     # Model
     parser.add_argument('--model', type=str, default="MobileUNet-Skip", help="MobileUNet, MobileUNet-Skip")
-    #                   load_model defaults to exp_dir; for:
-    #                       - model in same exp_dir, try: --load_model "stage_checkpoint_1/epoch_600.pth
+    #                   load_model defaults to stage_checkpoint_exp_dir for current experiment cv
     parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
     parser.add_argument('--learning_rate', type=float, default=0.0001)
     parser.add_argument('--stage', type=int, default=3, help="1 for first stage, 2 for second, 3 for both")
@@ -564,46 +563,17 @@ if __name__ == "__main__":
         if int(args.gpu) >= 0:
             print("Using CUDA version of the network, prepare your GPU !")
             network.cuda(int(args.gpu))
-            # Load best model from stage 1 if running straight into stage 2
-            if args.stage==3 and stage==2:
-                model_dir = os.path.join(exp_dir, "stage_1")
-                models = glob(os.path.join(model_dir, "*pth"))
-                # Try to find best model (highest epoch from stage_epoch_exp_dir)
-                try:
-                    model = models[0]
-                    for m in models:
-                        #   relies on name of model being "epoch_120.pth", "epoch_30.pth", or "epoch_1.pth"
-                        if int(m.split('_')[-1].split('.')[0]) > int(model.split('_')[-1].split('.')[0]):
-                            model = m
-                    network.load_state_dict(torch.load(model))
-                except Exception as e:
-                    print("ERROR loading model: %s" % str(e))
                     
             # Load specified model if --load_model was used
             elif args.load_model is not None:
-                network.load_state_dict(torch.load(os.path.join(exp_dir, args.load_model)))
+                network.load_state_dict(torch.load(os.path.join(stage_checkpoint_exp_dir, args.load_model)))
             
         else:
             print("Using CPU version of the net, this may be very slow")
             network.cpu()
-            
-            # Load best model from stage 1 if running straight into stage 2
-            if args.stage==3 and stage==2:
-                model_dir = os.path.join(exp_dir, "stage_1")
-                models = glob(os.path.join(model_dir, "*pth"))
-                # Try to find best model (highest epoch from stage_epoch_exp_dir)
-                try:
-                    model = models[0]
-                    for m in models:
-                        #   relies on name of model being "epoch_120.pth", "epoch_30.pth", or "epoch_1.pth"
-                        if int(m.split('_')[-1].split('.')[0]) > int(model.split('_')[-1].split('.')[0]):
-                            model = m
-                    network.load_state_dict(torch.load(model), map_location='cpu')
-                except Exception as e:
-                    print("ERROR loading model: %s" % str(e))
                     
-            elif args.load_model is not None:
-                network.load_state_dict(torch.load(os.path.join(exp_dir, args.load_model), map_location='cpu'))
+            if args.load_model is not None:
+                network.load_state_dict(torch.load(os.path.join(stage_checkpoint_exp_dir, args.load_model), map_location='cpu'))
 
         #
         #   Training - save the model on keyboard interrupt
