@@ -49,7 +49,7 @@ def get_args():
     # data augmentation
     parser.add_argument('--augment_data', type=str2bool, default=True, help="Turns on data augmentation(flip, rotate, translate, noise, tophat)")
     parser.add_argument('--augmentation_threshold', type=float, default=0.25, help="randomly perform one of the augmentation procedures this % of the time")
-    parser.add_argument('--expand_dataset', type=int, default=5, help="multiply dataset by this number of images per real image data augmentation")
+    parser.add_argument('--expand_dataset', type=int, default=1, help="multiply dataset by this number of images per real image data augmentation")
     parser.add_argument('--flip', type=str2bool, default=True)
     parser.add_argument('--rotate', type=str2bool, default=True)
     parser.add_argument('--translate', type=str2bool, default=True)
@@ -62,6 +62,7 @@ def get_args():
     parser.add_argument('--learning_rate', type=float, default=0.0001)
     parser.add_argument('--stage', type=int, default=3, help="1 for first stage, 2 for second, 3 for both")
     parser.add_argument('--dropout', type=float, default=0.0, help="Dropout values can be [0.0 : 1.0) (not 1.0!)")
+    parser.add_argument('--l2', type=float, default=0.0, help="L2 Regularization")
     # If you want to call this get_args() from a Jupyter Notebook, you need to uncomment -f line. Them's the rules.
     # parser.add_argument('-f', '--file', help='Path for input file.')
     return parser.parse_args()
@@ -112,7 +113,7 @@ def train_network(network, args, dirs, stage):
     criterion = nn.CrossEntropyLoss(reduction='mean').cuda(int(args.gpu))
     
     # instantiate optimizer
-    optimizer = torch.optim.Adam(network.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(network.parameters(), lr=learning_rate, weight_decay=args.l2)
 
     utils.count_params(network)
 

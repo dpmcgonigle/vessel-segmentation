@@ -29,8 +29,15 @@ class MobileUNet(nn.Module):
     the depthwise separable convolutions to ensure it runs fine on my machine. - McGonigle
     if gpu is -1, run on CPU.  Otherwise, run on GPU device specified
     """
-    def __init__(self, input_channels=1, preset_model="MobileUNet-Skip", num_classes=2, gpu=-1, gpu_4g_limit=True,
-        dropout=0.0
+    def __init__(self, 
+        input_channels=1,
+        n_filters=64,
+        preset_model="MobileUNet-Skip",
+        num_classes=2, 
+        gpu=-1, 
+        gpu_4g_limit=True,
+        dropout=0.0, 
+        depth=5
     ):
         """
         Constructor for MobileUNet
@@ -47,7 +54,8 @@ class MobileUNet(nn.Module):
         super(MobileUNet, self).__init__()
         
         # self.skips will keep track of down-sampled matrices to add to the up-sampling if self.has_skip == True
-        self.skips = {}        
+        self.skips = {} 
+        self.depth = depth
         if preset_model == "MobileUNet":
             self.has_skip = False
         elif preset_model == "MobileUNet-Skip":
@@ -74,49 +82,53 @@ class MobileUNet(nn.Module):
         #   Input size N x C x H x W (batch_size x channels x height x width); for this example, 1 x 1 x 512 x 512
         #
         self.down1 = Sequential(
-            self.ConvBlock(input_channels = input_channels, n_filters = 64),
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=self.gpu_4g_limit), 
+            self.ConvBlock(input_channels = input_channels, n_filters = n_filters),
+            self.DepthwiseSeparableConvBlock(input_channels = n_filters, n_filters = n_filters, slim=self.gpu_4g_limit), 
             MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
         )
         
         #
         #   Input size 1 x 64 x 256 x 256
         #
-        self.down2 = Sequential(
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 128),
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=self.gpu_4g_limit), 
-            MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
-        )
+        if depth > 1:
+            self.down2 = Sequential(
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters, n_filters = n_filters*2),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*2, n_filters = n_filters*2, slim=self.gpu_4g_limit), 
+                MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
+            )
 
         #
         #   Input size 1 x 128 x 128 x 128
         #
-        self.down3 = Sequential(
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 256),
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
-            MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
-        )
+        if depth > 2:
+            self.down3 = Sequential(
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*2, n_filters = n_filters*4),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*4, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*4, slim=self.gpu_4g_limit), 
+                MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
+            )
 
         #
         #   Input size 1 x 256 x 64 x 64
         #
-        self.down4 = Sequential(
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
-        )
+        if depth > 3:
+            self.down4 = Sequential(
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*8),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
+            )
 
         #
         #   Input size 1 x 512 x 32 x 32
         #
-        self.down5 = Sequential(
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
-        )
+        if depth > 4:
+            self.down5 = Sequential(
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                MaxPool2d(kernel_size = [2, 2], stride = [2, 2])
+            )
 
         #####################
         # Upsampling path 
@@ -128,56 +140,60 @@ class MobileUNet(nn.Module):
         #   EX: W = 256, K = 2, P = 0, S = 2 will yield double the same size image after convolution
         #   Input size 1 x 512 x 16 x 16 in the example we started from layer 1
         #
-        self.up1 = Sequential(
-            self.ConvTransposeBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512)
-        )
+        if depth > 4:
+            self.up1 = Sequential(
+                self.ConvTransposeBlock(input_channels = n_filters*8, n_filters = n_filters*8),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8)
+            )
 
         #  
         #   Input size 1 x 512 x 32 x 32
         #
-        self.up2 = Sequential(
-            self.ConvTransposeBlock(input_channels = 512, n_filters = 512),
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 512, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 512, n_filters = 256)
-        )
+        if depth > 3:
+            self.up2 = Sequential(
+                self.ConvTransposeBlock(input_channels = n_filters*8, n_filters = n_filters*8),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*8, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*8, n_filters = n_filters*4)
+            )
 
         #  
         #   Input size 1 x 256 x 64 x 64
         #
-        self.up3 = Sequential(
-            self.ConvTransposeBlock(input_channels = 256, n_filters = 256),
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 256, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 256, n_filters = 128)
-        )
+        if depth > 2:
+            self.up3 = Sequential(
+                self.ConvTransposeBlock(input_channels = n_filters*4, n_filters = n_filters*4),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*4, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*4, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*4, n_filters = n_filters*2)
+            )
 
         #  
         #   Input size 1 x 128 x 128 x 128
         #
-        self.up4 = Sequential(
-            self.ConvTransposeBlock(input_channels = 128, n_filters = 128),
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 128, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 128, n_filters = 64)
-        )
+        if depth > 1:
+            self.up4 = Sequential(
+                self.ConvTransposeBlock(input_channels = n_filters*2, n_filters = n_filters*2),
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*2, n_filters = n_filters*2, slim=self.gpu_4g_limit), 
+                self.DepthwiseSeparableConvBlock(input_channels = n_filters*2, n_filters = n_filters)
+            )
 
         #  
         #   Input size 1 x 64 x 256 x 256
         #
         self.up5 = Sequential(
-            self.ConvTransposeBlock(input_channels = 64, n_filters = 64),
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64, slim=self.gpu_4g_limit), 
-            self.DepthwiseSeparableConvBlock(input_channels = 64, n_filters = 64)
+            self.ConvTransposeBlock(input_channels = n_filters, n_filters = n_filters),
+            self.DepthwiseSeparableConvBlock(input_channels = n_filters, n_filters = n_filters, slim=self.gpu_4g_limit), 
+            self.DepthwiseSeparableConvBlock(input_channels = n_filters, n_filters = n_filters)
         )
 
         #####################
         #   Pre-Softmax output - input size 1 x 64 x 512 x 512, output size 1 x 2 x 512 x 512 for binary classification
         #####################
         self.out = Sequential(
-            Conv2d(in_channels = 64, out_channels = num_classes, kernel_size = [1, 1])
+            Conv2d(in_channels = n_filters, out_channels = num_classes, kernel_size = [1, 1])
         )
         #####################
         #      End init     
@@ -192,35 +208,43 @@ class MobileUNet(nn.Module):
         x = self.setSkip(1, x)
 
         #   Input size 1 x 64 x 256 x 256
-        x = self.down2(x)
-        x = self.setSkip(2, x)
+        if self.depth > 1:
+            x = self.down2(x)
+            x = self.setSkip(2, x)
 
         #   Input size 1 x 128 x 128 x 128
-        x = self.down3(x)
-        x = self.setSkip(3, x)
+        if self.depth > 2:
+            x = self.down3(x)
+            x = self.setSkip(3, x)
 
         #   Input size 1 x 256 x 64 x 64
-        x = self.down4(x)
-        x = self.setSkip(4, x)
+        if self.depth > 3:
+            x = self.down4(x)
+            x = self.setSkip(4, x)
 
         #   Input size 1 x 512 x 32 x 32
-        x = self.down5(x)
+        if self.depth > 4:
+            x = self.down5(x)
 
         #   Input size 1 x 512 x 16 x 16 in the example we started from layer 1
-        x = self.up1(x)
-        x = self.addSkip(4, x)
+        if self.depth > 4:
+            x = self.up1(x)
+            x = self.addSkip(4, x)
 
         #   Input size 1 x 512 x 32 x 32
-        x = self.up2(x)
-        x = self.addSkip(3, x)
+        if self.depth > 3:
+            x = self.up2(x)
+            x = self.addSkip(3, x)
 
         #   Input size 1 x 256 x 64 x 64
-        x = self.up3(x)
-        x = self.addSkip(2, x)
+        if self.depth > 2:
+            x = self.up3(x)
+            x = self.addSkip(2, x)
 
         #   Input size 1 x 128 x 128 x 128
-        x = self.up4(x)
-        x = self.addSkip(1, x)
+        if self.depth > 1:
+            x = self.up4(x)
+            x = self.addSkip(1, x)
 
         #   Input size 1 x 64 x 256 x 256
         x = self.up5(x)
