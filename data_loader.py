@@ -198,8 +198,9 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
             multidim_train_x_images[i,1] = np.squeeze(train_prob_images[i])
             # Run an edge detection on the probability map; needs to be int or np.sqrt throws a warning
             # That seems to be a general rule with images: int for (0:255) and float for (0:1) or (-1:1)
-            multidim_train_x_images[i,2] = filters.prewitt(np.squeeze(train_prob_images[i].astype(int)))
-        
+            edge = filters.prewitt(np.squeeze(train_prob_images[i].astype(dtype_0_255())))*255
+            multidim_train_x_images[i,2] = edge.astype(dtype_0_255())
+
         num_test_imgs = test_x_images.shape[0]
         # initialize (for scoping) new ndim array to hold orig image, prob map and edge map 
         multidim_test_x_images = np.empty((num_test_imgs, num_channels, img_height, img_width), dtype=dtype_0_255())
@@ -208,7 +209,8 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
             multidim_test_x_images[i,1] = np.squeeze(test_prob_images[i])
             # Run an edge detection on the probability map; needs to be int or np.sqrt throws a warning
             # That seems to be a general rule with images: int for (0:255) and float for (0:1) or (-1:1)
-            multidim_test_x_images[i,2] = filters.prewitt(np.squeeze(test_prob_images[i].astype(int)))
+            edge = filters.prewitt(np.squeeze(test_prob_images[i].astype(dtype_0_255())))*255
+            multidim_test_x_images[i,2] = edge.astype(dtype_0_255())
 
         data_images = {"train_x_images": multidim_train_x_images,
                        "train_y_images": train_y_images,
