@@ -92,7 +92,7 @@ def augment_imageset(input_img, label_img, probability_threshold=0.2, flip=True,
             #(col/2,rows/2) is the center of rotation for the image 
             # M is transformation matrix (computer graphics concept)
             M = cv2.getRotationMatrix2D((cols/2,rows/2),rotation,1) 
-            x_img[index] = cv2.warpAffine(img.copy(),M,(cols,rows))         
+            x_img[index] = cv2.warpAffine(img.copy(),M,(cols,rows))    
         for index, lbl in enumerate(y_img):
             M = cv2.getRotationMatrix2D((cols/2,rows/2),rotation,1) 
             y_img[index] = cv2.warpAffine(lbl.copy(),M,(cols,rows))  
@@ -137,7 +137,7 @@ def augment_imageset(input_img, label_img, probability_threshold=0.2, flip=True,
             noise_img = random_noise(x_img[0], mode=mode, var=noise_amount**2)  
         elif mode == "s&p":
             noise_img = random_noise(x_img[0], mode=mode, amount=noise_amount)
-        noise_img = (255*noise_img).astype(np.uint8)
+        x_img[0] = (255*noise_img).astype(np.uint8)
         
     return x_img, y_img
 # END augment_imageset
