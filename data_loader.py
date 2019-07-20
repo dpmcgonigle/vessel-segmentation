@@ -175,7 +175,7 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
     
     elif stage == 2:
         # Shape of training data; 3 channels - one for orig image, one for probability map, one for edge map
-        num_channels = 3
+        num_channels = 3    #still using this to put together images for max 7/20/2019
         img_height = train_x_images[0,0].shape[0]
         img_width = train_x_images[0,0].shape[1]
         new_shape = [img_height, img_width, num_channels]
@@ -191,31 +191,32 @@ def load_train_test_images(data_dir=get_data_dir(), prob_dir=get_prob_dir(),
             image_type=image_type)
     
         num_train_imgs = train_x_images.shape[0]
-        # initialize (for scoping) new ndim array to hold orig image, prob map and edge map 
-        multidim_train_x_images = np.empty((num_train_imgs, num_channels, img_height, img_width), dtype=dtype_0_255())
         for i in range(num_train_imgs):
-            multidim_train_x_images[i,0] = np.squeeze(train_x_images[i])
-            multidim_train_x_images[i,1] = np.squeeze(train_prob_images[i])
+            temp_x_train = np.empty((num_channels, img_height, img_width), dtype=dtype_0_255())
+            temp_x_train[0] = np.squeeze(train_x_images[i])
+            temp_x_train[1] = np.squeeze(train_prob_images[i])
             # Run an edge detection on the probability map; needs to be int or np.sqrt throws a warning
             # That seems to be a general rule with images: int for (0:255) and float for (0:1) or (-1:1)
             edge = filters.prewitt(np.squeeze(train_prob_images[i].astype(dtype_0_255())))*255
-            multidim_train_x_images[i,2] = edge.astype(dtype_0_255())
+            temp_x_train[2] = edge.astype(dtype_0_255())
+            #   put the max value into train_x_array
+            train_x_images[i,0] = temp_x_train.max(axis=0)
 
         num_test_imgs = test_x_images.shape[0]
-        # initialize (for scoping) new ndim array to hold orig image, prob map and edge map 
-        multidim_test_x_images = np.empty((num_test_imgs, num_channels, img_height, img_width), dtype=dtype_0_255())
         for i in range(num_test_imgs):
-            multidim_test_x_images[i,0] = np.squeeze(test_x_images[i])
-            multidim_test_x_images[i,1] = np.squeeze(test_prob_images[i])
+            temp_x_test = np.empty((num_channels, img_height, img_width), dtype=dtype_0_255())
+            temp_x_test[0] = np.squeeze(test_x_images[i])
+            temp_x_test[1] = np.squeeze(test_prob_images[i])
             # Run an edge detection on the probability map; needs to be int or np.sqrt throws a warning
             # That seems to be a general rule with images: int for (0:255) and float for (0:1) or (-1:1)
             edge = filters.prewitt(np.squeeze(test_prob_images[i].astype(dtype_0_255())))*255
-            multidim_test_x_images[i,2] = edge.astype(dtype_0_255())
+            temp_x_test[2] = edge.astype(dtype_0_255())
+            test_x_images[i,0] = temp_x_test.max(axis=0)
 
-        data_images = {"train_x_images": multidim_train_x_images,
+        data_images = {"train_x_images": train_x_images,
                        "train_y_images": train_y_images,
-                       "test_x_images": multidim_test_x_images,
-                       "test_y_images": test_y_images}            
+                       "test_x_images": test_x_images,  
+                       "test_y_images": test_y_images,}
     ### END STAGE 2 DATA LOADING
     
     train_filenames = [filepath_to_name(train_file_path) for train_file_path in train_x_data_paths]

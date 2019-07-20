@@ -25,7 +25,7 @@ import cv2                  #   image-handling functionality
 
 ################################### VARIABLES ###################################
 STAGE_1_INPUT_CHANNELS = 1
-STAGE_2_INPUT_CHANNELS = 3
+STAGE_2_INPUT_CHANNELS = 1
 
 ############################### COMMAND-LINE ARGS ###############################
 def get_args():
