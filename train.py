@@ -41,7 +41,7 @@ def get_args():
     parser.add_argument('--prob_dir', type=str) # expects directory 'probability_maps'; defaults to exp_dir
     # hyper-parameters
     parser.add_argument('--epochs_per_stage', type=int, default=600)
-    parser.add_argument('--start_epoch', type=int, default=1)
+    parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--validate_epoch', type=int, default=30)
     parser.add_argument('--cv', type=int, default=0, help="cross validation fold [0 : (cv_folds-1)]")
@@ -158,7 +158,7 @@ def train_network(network, args, dirs, stage):
         input_channels = STAGE_1_INPUT_CHANNELS if stage == 1 else STAGE_2_INPUT_CHANNELS
         
         # print out dataset details
-        if epoch == 1:
+        if epoch == 0:
             print("Number of training images: %d, testing images: %d" % (num_train_imgs, num_test_imgs))
             print("Shape of training images: %s, testing images: %s" % (str(train_x_imgs.shape), str(test_x_imgs.shape)))
             print("\n")
@@ -248,7 +248,7 @@ def train_network(network, args, dirs, stage):
         #
         #   validate on training and validation data sets
         #
-        if epoch % int(args.validate_epoch) == 0 or epoch == 1:
+        if epoch % int(args.validate_epoch) == 0:
         
             # Turn off batch norm, dropout, and don't worry about storing computation graph
             network.eval()
@@ -493,7 +493,7 @@ def train_network(network, args, dirs, stage):
     #   MAKE IMAGES! First Loss function, then evaluation metrics
     #
     # x is for x axis (epochs) in the metrics charts
-    x = [start_epoch] + [x for x in range(args.validate_epoch, args.epochs_per_stage+1, args.validate_epoch)]
+    x = [start_epoch] + [x for x in range(args.start_epoch, args.epochs_per_stage+1, args.validate_epoch)]
     
     plt.figure()
     plt.plot(x, training_losses.ravel(), label="Training Losses")
