@@ -19,7 +19,7 @@ from utils import print_d, get_memory
 #       getSkip                     - returns the down-sampling feature map values saved
 #       addSkip                     - adds the value of the down-sampling feature maps to the up-sampling layer
 ############################################################################################ 
-class MobileUNet(nn.Module):
+class MultiMobileUNet(nn.Module):
     """
     This Mobile U-Net has been adapted from the TensorFlow version on George Sief's semantic segmentation suite:
     https://github.com/GeorgeSeif/Semantic-Segmentation-Suite/blob/master/models/MobileUNet.py
@@ -28,6 +28,21 @@ class MobileUNet(nn.Module):
     yielding a run-time error.  It may be a memory management issue, but until that time I have commented out some of 
     the depthwise separable convolutions to ensure it runs fine on my machine. - McGonigle
     if gpu is -1, run on CPU.  Otherwise, run on GPU device specified
+    
+    NOTE: 7/21/2019 - I built in the context block based on: 
+    "MULTI-SCALE CONTEXT AGGREGATION BY DILATED CONVOLUTIONS"
+    http://vladlen.info/papers/dilated-convolutions.pdf
+    Architecture:
+    Layer           1   2   3   4       5       6       7       8
+    Convolution     3×3 3×3 3×3 3×3     3×3     3×3     3×3     1×1
+    Dilation        1   1   2   4       8       16      1       1 
+    Truncation      Yes Yes Yes Yes     Yes     Yes     Yes     No
+    Receptive field 3×3 5×5 9×9 17×17   33×33   65×65   67×67   67×67
+    Convolution feature map size formula: 
+    The context module is designed to increase the performance of dense prediction architectures by
+    aggregating multi-scale contextual information. The module takes C feature maps as input and
+    produces C feature maps as output. The input and output have the same form, thus the module can
+    be plugged into existing dense prediction architectures.
     """
     def __init__(self, 
         input_channels=1,
@@ -56,7 +71,7 @@ class MobileUNet(nn.Module):
         self.skips = {} 
         self.depth = depth
         self.has_skip = skip
-       
+        
         # Boolean determines whether to run on CPU
         self.cpu = (gpu == -1)
         # Boolean determines whether GPU is limited to 4GB RAM.  If so, run with max batch size of 2
@@ -187,6 +202,7 @@ class MobileUNet(nn.Module):
         #   Pre-Softmax output - input size 1 x 64 x 512 x 512, output size 1 x 2 x 512 x 512 for binary classification
         #####################
         self.out = Sequential(
+            self.ContextModule(n_filters),
             Conv2d(in_channels = n_filters, out_channels = num_classes, kernel_size = [1, 1])
         )
         #####################
@@ -264,6 +280,7 @@ class MobileUNet(nn.Module):
         # Set padding based on kernel size for same size output
         k = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
         pad = int(np.floor(k/2))
+        
         # Skip pointwise by setting num_outputs=None
         net.append( Conv2d(in_channels = input_channels, out_channels = n_filters, kernel_size=kernel_size, padding=pad) )
         
@@ -274,6 +291,50 @@ class MobileUNet(nn.Module):
         return Sequential(*net)
         #####################
         #      End ConvBlock     
+        #####################
+    # input 512 , output 256
+    
+    def ContextModule(self, input_channels, kernel_size=[3, 3]):
+        """
+        Builds the context module block block for MobileNets
+        based on: "MULTI-SCALE CONTEXT AGGREGATION BYDILATED CONVOLUTIONS"
+        http://vladlen.info/papers/dilated-convolutions.pdf
+        Architecture:
+        Layer           1   2   3   4       5       6       7       8
+        Convolution     3×3 3×3 3×3 3×3     3×3     3×3     3×3     1×1
+        Dilation        1   1   2   4       8       16      1       1 
+        Truncation      Yes Yes Yes Yes     Yes     Yes     Yes     No
+        Receptive field 3×3 5×5 9×9 17×17   33×33   65×65   67×67   67×67
+        Convolution feature map size formula: 
+        The context module is designed to increase the performance of dense prediction architectures by
+        aggregating multi-scale contextual information. The module takes C feature maps as input and
+        produces C feature maps as output. The input and output have the same form, thus the module can
+        be plugged into existing dense prediction architectures.
+        """
+        net = []
+        dilations = [1,1,2,4,8,16]
+        
+        for d in dilations:
+            # Get padding to keep output shape same as input shape
+            k = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
+            pad = int(np.floor(k/2))
+
+            # Add Conv layer with dilations
+            net.append( Conv2d(in_channels = input_channels, 
+                               out_channels = input_channels, 
+                               kernel_size=kernel_size, 
+                               padding=pad, 
+                               dilation=d) )    
+        # Pointwise
+        net.append( Conv2d(in_channels = input_channels, out_channels = input_channels, kernel_size=[1, 1]) )
+        
+        #net.append( BatchNorm2d(input_channels) )
+        
+        #net.append( ReLU() )
+        
+        return Sequential(*net)
+        #####################
+        #      End ContextModule     
         #####################
     # input 512 , output 256
     def DepthwiseSeparableConvBlock(self, input_channels, n_filters, kernel_size=[3, 3], slim=False):
@@ -297,10 +358,11 @@ class MobileUNet(nn.Module):
             # Set padding based on kernel size for same size output
             k = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
             pad = int(np.floor(k/2))
+            
             # Seperable convolution 
             net.append(
                 Conv2d(in_channels = input_channels, out_channels = input_channels, 
-                kernel_size=kernel_size, groups=input_channels, padding = pad)
+                kernel_size=[3,3], groups=input_channels, padding = pad)
             )
 
             if self.dropout > 0.0:
