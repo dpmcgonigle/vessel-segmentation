@@ -294,7 +294,7 @@ class MultiMobileUNet(nn.Module):
         #####################
     # input 512 , output 256
     
-    def ContextModule(self, input_channels, kernel_size=[3, 3]):
+    def ContextModule(self, input_channels, kernel_size=[3, 3], image_size=512):
         """
         Builds the context module block block for MobileNets
         based on: "MULTI-SCALE CONTEXT AGGREGATION BYDILATED CONVOLUTIONS"
@@ -316,8 +316,10 @@ class MultiMobileUNet(nn.Module):
         
         for d in dilations:
             # Get padding to keep output shape same as input shape
+            # o = [i + 2*p - k - (k-1)*(d-1)]/s + 1
             k = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
-            pad = int(np.floor(k/2))
+            #pad = ((img_size - 1 ) / s - img_size + k + (k-1)*(d-1)) / 2  --- since s will be 1, simplify:
+            pad = int((k + (k-1)*(d-1) - 1) / 2)
 
             # Add Conv layer with dilations
             net.append( Conv2d(in_channels = input_channels, 
