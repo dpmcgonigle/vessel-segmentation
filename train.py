@@ -493,7 +493,7 @@ def train_network(network, args, dirs, stage):
     #   MAKE IMAGES! First Loss function, then evaluation metrics
     #
     # x is for x axis (epochs) in the metrics charts
-    x = [start_epoch] + [x for x in range(args.start_epoch, args.epochs_per_stage+1, args.validate_epoch)]
+    x = [start_epoch] + [x for x in range(args.start_epoch, args.epochs_per_stage, args.validate_epoch)]
     
     plt.figure()
     plt.plot(x, training_losses.ravel(), label="Training Losses")
