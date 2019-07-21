@@ -65,7 +65,7 @@ class MultiMobileUNet(nn.Module):
         gpu_4g_limit: If you have a 4GB Memory limit (like my NVIDIA GeForce GTX 1050 Ti), the full model is too big
             when using 512 x 512 images
         """
-        super(MobileUNet, self).__init__()
+        super(MultiMobileUNet, self).__init__()
         
         # self.skips will keep track of down-sampled matrices to add to the up-sampling if self.has_skip == True
         self.skips = {} 
