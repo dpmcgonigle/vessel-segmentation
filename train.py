@@ -58,6 +58,7 @@ def get_args():
     parser.add_argument('--noise', type=str2bool, default=True)
     # Model
     parser.add_argument('--model', type=str, default="MultiMobileUNet", help="MobileUNet, MultiMobileUNet")
+    parser.add_argument('--depth', type=int, default=5, help="How deep would you like your U-Net?")
     parser.add_argument('--skip', type=str2bool, default=True, help="Add skip connections in MobileUnet? (true/false)")
     #                   load_model defaults to stage_checkpoint_exp_dir for current experiment cv
     parser.add_argument('--load_model', type=str, default=None, help="load [model].pth params, default to None to start fresh")
@@ -564,6 +565,8 @@ if __name__ == "__main__":
                         num_classes=num_classes, 
                         gpu=args.gpu, 
                         gpu_4g_limit=args.gpu_4g_limit, 
+                        dropout=args.dropout,
+                        depth=args.depth,
                         skip=args.skip)
 
         # assign network to cpu or gpu, and load parameters if applicable
