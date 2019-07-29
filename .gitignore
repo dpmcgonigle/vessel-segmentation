@@ -9,6 +9,7 @@
 .ipynb*		# Jupyter Notebook cache
 __pycache__
 augmented_images.py	# This is a test script to view the augmented images
+full_training.py
 
 # Compiled source #
 ###################
