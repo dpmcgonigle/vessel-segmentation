@@ -9,7 +9,8 @@
 
 ### Publication
 
-[Research Paper](https://arxiv.org/pdf/2101.09848.pdf)
+[A new approach to extracting coronary arteries and detecting stenosis in invasive coronary
+angiograms](https://arxiv.org/pdf/2101.09848.pdf)
 
 ### Description
 
