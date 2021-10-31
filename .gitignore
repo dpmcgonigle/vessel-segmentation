@@ -5,6 +5,7 @@
 
 # Misc #
 ########
+.idea
 logs
 *.ipynb		# Jupyter Notebooks
 .ipynb*		# Jupyter Notebook cache
